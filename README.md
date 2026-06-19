@@ -4,6 +4,7 @@
 
 [![Build](https://github.com/bencoxford/kubeair/actions/workflows/build.yml/badge.svg)](https://github.com/bencoxford/kubeair/actions/workflows/build.yml)
 [![Tests](https://github.com/bencoxford/kubeair/actions/workflows/test.yml/badge.svg)](https://github.com/bencoxford/kubeair/actions/workflows/test.yml)
+[![E2E Tests](https://github.com/bencoxford/kubeair/actions/workflows/kubeadm-e2e.yml/badge.svg)](https://github.com/bencoxford/kubeair/actions/workflows/kubeadm-e2e.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 A like-for-like functional Rust reimplementation of the Kubernetes [kubelet](https://github.com/kubernetes/kubernetes/blob/master/cmd/kubelet/kubelet.go), tested against a live kubeadm cluster with ~888 automated tests across unit, integration, conformance, and e2e layers. In the future we may visit other componenets like the kube-apiserver.
