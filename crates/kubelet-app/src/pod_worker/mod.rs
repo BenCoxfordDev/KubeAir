@@ -1020,11 +1020,37 @@ impl PodWorker {
         // Give containers a moment to stop before removal
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // Remove containers
+        // Remove containers — retry up to 3 times with a brief delay between
+        // attempts.  Some CRI implementations (containerd under load) may
+        // briefly return "container is not stopped" even after StopContainer
+        // returned successfully, so a single attempt is not enough on slow CI
+        // runners.
         for (name, cid_str) in &state.container_ids {
             let cid = kubelet_core::container::ContainerID::new(cid_str.clone());
-            if let Err(e) = self.runtime.remove_container(&cid).await {
-                warn!(container = %name, error = %e, "Failed to remove container");
+            let mut removed = false;
+            for attempt in 0..3u32 {
+                match self.runtime.remove_container(&cid).await {
+                    Ok(()) => {
+                        removed = true;
+                        break;
+                    }
+                    Err(e) => {
+                        if attempt < 2 {
+                            debug!(
+                                container = %name,
+                                attempt,
+                                error = %e,
+                                "remove_container failed, retrying"
+                            );
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                        } else {
+                            warn!(container = %name, error = %e, "Failed to remove container after retries");
+                        }
+                    }
+                }
+            }
+            if !removed {
+                warn!(container = %name, "Container removal ultimately failed — containerd record may linger");
             }
         }
 

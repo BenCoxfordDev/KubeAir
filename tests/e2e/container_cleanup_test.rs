@@ -248,12 +248,18 @@ async fn e2e_pod_teardown_removes_containerd_container_records() {
     let before_ids: std::collections::HashSet<String> = ctr_container_ids().into_iter().collect();
 
     // Create a pod that runs briefly and exits.
-    let manifest = test_pod(
+    // terminationGracePeriodSeconds=0 ensures the pod is removed from the API
+    // immediately on deletion and the kubelet uses SIGKILL (no 30-second grace
+    // period race with Kubernetes GC).
+    let mut manifest = test_pod(
         pod_name,
         "busybox:1.36",
         vec!["sh".into(), "-c".into(), "echo hello && sleep 10".into()],
         "Never",
     );
+    if let Some(spec) = manifest.spec.as_mut() {
+        spec.termination_grace_period_seconds = Some(0);
+    }
     pods.create(&PostParams::default(), &manifest)
         .await
         .expect("Failed to create test pod");
@@ -306,11 +312,22 @@ async fn e2e_pod_teardown_removes_containerd_container_records() {
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
-    // Give the kubelet a moment to process the deletion and clean up containerd.
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
-    // The container records created by this pod must be gone from containerd.
-    let after_ids: std::collections::HashSet<String> = ctr_container_ids().into_iter().collect();
+    // Poll until the kubelet has cleaned up the containerd records, or until
+    // a generous timeout expires.  A fixed sleep is unreliable in CI because
+    // stop_container with the default 30-second grace period can run right up
+    // to the point where Kubernetes GC removes the pod from the API server,
+    // leaving remove_container still in flight when the test's 5-second sleep
+    // expires.
+    let containerd_cleanup_deadline = std::time::Instant::now() + Duration::from_secs(60);
+    let after_ids: std::collections::HashSet<String> = loop {
+        let current_ids: std::collections::HashSet<String> =
+            ctr_container_ids().into_iter().collect();
+        let still_present: bool = pod_ctr_ids.iter().any(|id| current_ids.contains(id));
+        if !still_present || std::time::Instant::now() >= containerd_cleanup_deadline {
+            break current_ids;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    };
     let leaked: Vec<&String> = pod_ctr_ids
         .iter()
         .filter(|id| after_ids.contains(*id))
