@@ -68,6 +68,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   KUBERNETES_VERSION: ${{ inputs.kubernetes_version || '1.33.0' }}
   CALICO_VERSION:     ${{ inputs.calico_version    || 'v3.29.1' }}
