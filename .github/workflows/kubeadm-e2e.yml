@@ -51,6 +51,15 @@ on:
         default: "0"
         type: string
 
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'crates/**/*.rs'
+      - 'tests/e2e/**'
+      - 'hack/e2e/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
   push:
     branches:
       - main
