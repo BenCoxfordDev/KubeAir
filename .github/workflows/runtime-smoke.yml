@@ -1,11 +1,6 @@
 name: Runtime Smoke
 on:
   pull_request:
-    paths:
-      - 'Cargo.lock'
-      - 'Cargo.toml'
-      - 'crates/**/*.rs'
-      - 'tests/**/*.rs'
   push:
     branches:
       - main
@@ -21,7 +16,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            relevant:
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+              - 'crates/**/*.rs'
+              - 'tests/**/*.rs'
+              - '.github/workflows/runtime-smoke.yml'
+
   runtime-smoke:
+    needs: [check-changes]
+    if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
     env:
       CARGO_INCREMENTAL: "0"

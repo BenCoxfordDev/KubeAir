@@ -1,9 +1,6 @@
 name: Lint
 on:
   pull_request:
-    paths:
-      - '**/*.rs'
-      - '**/Cargo.lock'
   push:
     branches:
       - main

@@ -52,13 +52,6 @@ on:
         type: string
 
   pull_request:
-    paths:
-      - 'src/**'
-      - 'crates/**/*.rs'
-      - 'tests/e2e/**'
-      - 'hack/e2e/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
 
   push:
     branches:
@@ -87,7 +80,29 @@ env:
   KUBELET_BIN:        /tmp/kubelet-bin/kubelet
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            relevant:
+              - 'src/**'
+              - 'crates/**/*.rs'
+              - 'tests/e2e/**'
+              - 'hack/e2e/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/kubeadm-e2e.yml'
+
   kubeadm-e2e:
+    needs: [check-changes]
+    if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
