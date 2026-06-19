@@ -1,0 +1,211 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_release: ${{ steps.tag_check.outputs.should_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          VERSION_RAW="$(awk '
+            /^\[workspace\.package\]/ { in_section=1; next }
+            in_section && /^\[/ { in_section=0 }
+            in_section && /^version[[:space:]]*=/ {
+              if (match($0, /"([^"]+)"/, m)) {
+                print m[1]
+                exit
+              }
+            }
+          ' Cargo.toml)"
+
+          if [[ -z "$VERSION_RAW" ]]; then
+            echo "Could not read workspace.package version from Cargo.toml"
+            exit 1
+          fi
+
+          if [[ ! "$VERSION_RAW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version format in Cargo.toml: $VERSION_RAW"
+            echo "Expected format: MAJOR.MINOR.PATCH"
+            exit 1
+          fi
+
+          VERSION="v${VERSION_RAW}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Check tag availability
+        id: tag_check
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" > /dev/null 2>&1; then
+            echo "Tag ${VERSION} already exists. Skipping release creation."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create and push git tag
+        if: steps.tag_check.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$VERSION"
+          git push origin "$VERSION"
+  create_release:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create GitHub release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ needs.prepare.outputs.version }}';
+
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: tag,
+              generate_release_notes: true
+            });
+  build_and_upload:
+    needs:
+      - prepare
+      - create_release
+    if: needs.prepare.outputs.should_release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            artifact_arch: amd64
+            runs_on: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            artifact_arch: arm64
+            runs_on: ubuntu-24.04 # to change to arm64 runners once available
+    runs-on: ${{ matrix.runs_on }}
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Rust toolchain is preinstalled
+        shell: bash
+        run: |
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          command -v rustc
+          command -v cargo
+          command -v rustup
+          rustc --version
+          cargo --version
+          rustup --version
+          rustup target add ${{ matrix.target }}
+          rustup target list --installed
+
+      - name: Install protoc
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+
+      - name: Install cross-compilers
+        shell: bash
+        run: |
+          sudo apt-get update
+          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
+            echo "Native x86_64 build; no cross-compiler required"
+          else
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+          fi
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-release-${{ matrix.target }}"
+
+      - name: Build release binary
+        shell: bash
+        run: |
+          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
+            cargo build --release --locked --bin kubelet --target ${{ matrix.target }}
+          else
+            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+              cargo build --release --locked --bin kubelet --target ${{ matrix.target }}
+          fi
+
+      - name: Package artifact
+        id: package
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT="kubelet-${VERSION}-linux_${{ matrix.artifact_arch }}.tar.gz"
+
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/kubelet" dist/kubelet
+
+          tar -C dist -czf "$ARTIFACT" kubelet
+          sha256sum "$ARTIFACT" > "${ARTIFACT}.sha256"
+
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release assets
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ needs.prepare.outputs.version }}
+          ARTIFACT: ${{ steps.package.outputs.artifact }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const tag = process.env.TAG;
+            const files = [process.env.ARTIFACT, `${process.env.ARTIFACT}.sha256`];
+
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag
+            });
+
+            for (const filePath of files) {
+              const data = fs.readFileSync(filePath);
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+                name: path.basename(filePath),
+                data,
+                headers: {
+                  'content-type': 'application/octet-stream',
+                  'content-length': data.length
+                }
+              });
+            }

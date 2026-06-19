@@ -1,0 +1,75 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="KubeAir logo">
+  <defs>
+    <linearGradient id="bg" x1="140" y1="120" x2="860" y2="910" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#083B66"/>
+      <stop offset="0.52" stop-color="#0E6AA8"/>
+      <stop offset="1" stop-color="#64C7FF"/>
+    </linearGradient>
+    <linearGradient id="ship" x1="300" y1="380" x2="770" y2="635" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EFF7FF"/>
+      <stop offset="1" stop-color="#B9DBF5"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="620" y1="510" x2="830" y2="650" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFDFA1"/>
+      <stop offset="1" stop-color="#FFB85C"/>
+    </linearGradient>
+    <filter id="softGlow" x="0" y="0" width="1024" height="1024" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+  </defs>
+
+  <circle cx="512" cy="512" r="468" fill="url(#bg)"/>
+
+  <g opacity="0.22" filter="url(#softGlow)">
+    <ellipse cx="540" cy="725" rx="245" ry="52" fill="#06253F"/>
+  </g>
+
+  <path d="M210 415C265 345 352 332 430 371C505 410 578 406 638 361C719 299 821 329 865 412C799 393 742 402 682 443C608 494 532 506 438 468C362 437 290 425 210 415Z" fill="#C5EAFF" opacity="0.20"/>
+
+  <path d="M167 609C231 551 323 553 392 597C459 638 526 643 586 608C669 559 770 573 843 636C760 620 701 633 637 675C562 724 488 731 396 699C328 675 254 656 167 609Z" fill="#D6F1FF" opacity="0.17"/>
+
+  <g transform="rotate(-9 525 518)">
+    <g transform="translate(1050 0) scale(-1 1)">
+    <ellipse cx="508" cy="518" rx="262" ry="116" fill="url(#ship)"/>
+    <path d="M744 500C772 505 798 523 811 541C790 538 770 542 750 553L736 531Z" fill="url(#wing)"/>
+    <path d="M742 468L790 448L768 496Z" fill="#F5C778"/>
+    <path d="M734 569L785 589L745 614Z" fill="#F5C778"/>
+    <path d="M298 518C326 484 349 456 381 431" stroke="#CFE9FB" stroke-width="12" stroke-linecap="round" opacity="0.7"/>
+    <path d="M288 518H715" stroke="#6FA6C8" stroke-width="10" stroke-linecap="round" opacity="0.75"/>
+
+    <g stroke="#2C5D81" stroke-width="8" opacity="0.7">
+      <line x1="350" y1="450" x2="350" y2="585"/>
+      <line x1="410" y1="437" x2="410" y2="598"/>
+      <line x1="470" y1="428" x2="470" y2="607"/>
+      <line x1="530" y1="428" x2="530" y2="607"/>
+      <line x1="590" y1="437" x2="590" y2="598"/>
+      <line x1="650" y1="450" x2="650" y2="585"/>
+    </g>
+
+    <path d="M465 614H588C602 614 614 626 614 640V656C614 672 602 684 588 684H465C451 684 439 672 439 656V640C439 626 451 614 465 614Z" fill="#294F6C"/>
+    <path d="M475 652H579" stroke="#D7EEFF" stroke-width="8" stroke-linecap="round" opacity="0.65"/>
+    <line x1="492" y1="612" x2="486" y2="590" stroke="#294F6C" stroke-width="6" stroke-linecap="round"/>
+    <line x1="560" y1="612" x2="566" y2="590" stroke="#294F6C" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="804" cy="540" r="12" fill="#264965"/>
+    <circle cx="804" cy="540" r="22" stroke="#264965" stroke-width="5" opacity="0.5"/>
+    </g>
+  </g>
+
+  <g transform="translate(635 368)">
+    <circle cx="0" cy="0" r="60" fill="#E7F5FF"/>
+    <circle cx="0" cy="0" r="26" fill="#1E5A86"/>
+    <g stroke="#1E5A86" stroke-width="10" stroke-linecap="round">
+      <line x1="0" y1="-52" x2="0" y2="-20"/>
+      <line x1="45" y1="-26" x2="18" y2="-10"/>
+      <line x1="45" y1="26" x2="18" y2="10"/>
+      <line x1="0" y1="52" x2="0" y2="20"/>
+      <line x1="-45" y1="26" x2="-18" y2="10"/>
+      <line x1="-45" y1="-26" x2="-18" y2="-10"/>
+    </g>
+  </g>
+
+  <path d="M355 792C371 772 403 765 425 777C444 787 463 787 480 777C502 764 531 769 547 790" stroke="#EAF8FF" stroke-width="10" stroke-linecap="round" opacity="0.85"/>
+  <path d="M530 786C547 766 578 758 601 770C620 780 639 780 656 771C679 758 708 764 725 784" stroke="#EAF8FF" stroke-width="10" stroke-linecap="round" opacity="0.72"/>
+
+  <text x="512" y="890" text-anchor="middle" fill="#EFFFFF" font-size="104" font-family="Avenir Next, Montserrat, Helvetica, Arial, sans-serif" font-weight="700" letter-spacing="2">KubeAir</text>
+</svg>

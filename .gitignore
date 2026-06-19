@@ -1,0 +1,5 @@
+/target
+*.orig
+.DS_Store
+.github/agents/*
+.github/prompts/*

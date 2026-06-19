@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package v1beta1;
+
+message Empty {}
+
+message NUMANode {
+  int64 ID = 1;
+}
+
+message TopologyInfo {
+  repeated NUMANode nodes = 1;
+}
+
+message Device {
+  string ID = 1;
+  string health = 2;
+  TopologyInfo topology = 3;
+}
+
+message ListAndWatchResponse {
+  repeated Device devices = 1;
+}
+
+message DevicePluginOptions {
+  bool pre_start_required = 1;
+  bool get_preferred_allocation_available = 2;
+}
+
+message DeviceSpec {
+  string container_path = 1;
+  string host_path = 2;
+  string permissions = 3;
+}
+
+message Mount {
+  string container_path = 1;
+  string host_path = 2;
+  bool read_only = 3;
+}
+
+message ContainerAllocateRequest {
+  repeated string devices_i_ds = 1;
+}
+
+message ContainerAllocateResponse {
+  map<string, string> envs = 1;
+  repeated Mount mounts = 2;
+  repeated DeviceSpec devices = 3;
+  map<string, string> annotations = 4;
+}
+
+message AllocateRequest {
+  repeated ContainerAllocateRequest container_requests = 1;
+}
+
+message AllocateResponse {
+  repeated ContainerAllocateResponse container_responses = 1;
+}
+
+service DevicePlugin {
+  rpc GetDevicePluginOptions(Empty) returns (DevicePluginOptions);
+  rpc ListAndWatch(Empty) returns (stream ListAndWatchResponse);
+  rpc Allocate(AllocateRequest) returns (AllocateResponse);
+}
+
+// Registration is the service plugins call on kubelet.sock to register
+// themselves with kubelet.
+message RegisterRequest {
+  // Version of the API the plugin supports.
+  string version = 1;
+  // Endpoint is the plugin's own socket filename in /var/lib/kubelet/device-plugins/.
+  string endpoint = 2;
+  // ResourceName is the extended resource name (e.g. "example.com/device").
+  string resource_name = 3;
+  // Optional options.
+  repeated string options = 4;
+}
+
+service Registration {
+  rpc Register(RegisterRequest) returns (Empty) {}
+}

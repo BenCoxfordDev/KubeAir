@@ -1,0 +1,57 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="KubeAir icon mark">
+  <defs>
+    <linearGradient id="ship" x1="292" y1="384" x2="772" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F2FAFF"/>
+      <stop offset="1" stop-color="#BBDDF5"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="632" y1="505" x2="840" y2="645" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFE4AF"/>
+      <stop offset="1" stop-color="#FFB964"/>
+    </linearGradient>
+  </defs>
+
+  <g>
+    <circle cx="512" cy="512" r="456" fill="#0B5E96"/>
+    <path d="M180 610C242 558 331 560 398 602C462 642 528 648 587 613C668 566 767 579 839 636C756 622 697 634 635 675C560 724 488 731 398 700C330 676 256 657 180 610Z" fill="#D7F1FF" opacity="0.2"/>
+  </g>
+
+  <g transform="rotate(-9 524 514)">
+    <g transform="translate(1048 0) scale(-1 1)">
+    <ellipse cx="512" cy="515" rx="264" ry="118" fill="url(#ship)"/>
+    <path d="M748 498C776 503 801 520 815 539C794 537 774 541 754 552L739 530Z" fill="url(#accent)"/>
+    <path d="M746 465L795 445L772 493Z" fill="#F1C172"/>
+    <path d="M738 567L789 587L748 612Z" fill="#F1C172"/>
+    <path d="M302 515C329 482 353 454 386 429" stroke="#D4ECFC" stroke-width="12" stroke-linecap="round" opacity="0.72"/>
+    <path d="M292 515H720" stroke="#6B9EC0" stroke-width="10" stroke-linecap="round" opacity="0.75"/>
+
+    <g stroke="#285571" stroke-width="8" opacity="0.75">
+      <line x1="356" y1="447" x2="356" y2="583"/>
+      <line x1="416" y1="434" x2="416" y2="596"/>
+      <line x1="476" y1="425" x2="476" y2="605"/>
+      <line x1="536" y1="425" x2="536" y2="605"/>
+      <line x1="596" y1="434" x2="596" y2="596"/>
+      <line x1="656" y1="447" x2="656" y2="583"/>
+    </g>
+
+    <path d="M468 611H592C606 611 618 623 618 637V654C618 670 606 682 592 682H468C454 682 442 670 442 654V637C442 623 454 611 468 611Z" fill="#2A536E"/>
+    <path d="M479 649H583" stroke="#D7EEFF" stroke-width="8" stroke-linecap="round" opacity="0.65"/>
+    <line x1="495" y1="610" x2="489" y2="588" stroke="#2A536E" stroke-width="6" stroke-linecap="round"/>
+    <line x1="564" y1="610" x2="570" y2="588" stroke="#2A536E" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="808" cy="538" r="12" fill="#244661"/>
+    <circle cx="808" cy="538" r="22" stroke="#244661" stroke-width="5" opacity="0.5"/>
+    </g>
+  </g>
+
+  <g transform="translate(638 359)">
+    <circle cx="0" cy="0" r="62" fill="#E7F5FF"/>
+    <circle cx="0" cy="0" r="26" fill="#1E5A86"/>
+    <g stroke="#1E5A86" stroke-width="10" stroke-linecap="round">
+      <line x1="0" y1="-54" x2="0" y2="-21"/>
+      <line x1="47" y1="-27" x2="18" y2="-10"/>
+      <line x1="47" y1="27" x2="18" y2="10"/>
+      <line x1="0" y1="54" x2="0" y2="21"/>
+      <line x1="-47" y1="27" x2="-18" y2="10"/>
+      <line x1="-47" y1="-27" x2="-18" y2="-10"/>
+    </g>
+  </g>
+</svg>

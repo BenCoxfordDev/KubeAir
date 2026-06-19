@@ -1,0 +1,159 @@
+name: Runtime Smoke
+on:
+  pull_request:
+    paths:
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'crates/**/*.rs'
+      - 'tests/**/*.rs'
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'crates/**/*.rs'
+      - 'tests/**/*.rs'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-smoke:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Rust toolchain is preinstalled
+        shell: bash
+        run: |
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          command -v rustc
+          command -v cargo
+          rustc --version
+          cargo --version
+
+      - name: Install runtime dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler containerd containernetworking-plugins iproute2 iptables
+          protoc --version
+          containerd --version
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-test"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Provision containerd and CNI
+        shell: bash
+        run: |
+          sudo mkdir -p /opt/cni /etc/cni/net.d
+          if [[ ! -e /opt/cni/bin ]]; then
+            sudo ln -s /usr/lib/cni /opt/cni/bin
+          fi
+
+          cat <<'EOF' | sudo tee /etc/cni/net.d/10-kubelet-rs-ci.conflist >/dev/null
+          {
+            "cniVersion": "1.0.0",
+            "name": "kube-air-ci",
+            "plugins": [
+              {
+                "type": "bridge",
+                "bridge": "cni0",
+                "isGateway": true,
+                "ipMasq": true,
+                "promiscMode": true,
+                "ipam": {
+                  "type": "host-local",
+                  "ranges": [
+                    [
+                      {
+                        "subnet": "10.88.0.0/16"
+                      }
+                    ]
+                  ],
+                  "routes": [
+                    {
+                      "dst": "0.0.0.0/0"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "portmap",
+                "capabilities": {
+                  "portMappings": true
+                }
+              }
+            ]
+          }
+          EOF
+
+          # Ensure containerd service is started
+          echo "Starting containerd service..."
+          sudo systemctl start containerd 2>&1 || {
+            echo "systemctl start failed, starting manually..."
+            sudo mkdir -p /run/containerd
+            sudo nohup containerd >/tmp/containerd.log 2>&1 &
+          }
+          
+          # Wait for containerd socket file to exist
+          echo "Waiting for containerd socket to be ready..."
+          max_attempts=60
+          attempt=0
+          while [[ ! -S /run/containerd/containerd.sock ]]; do
+            if [[ $attempt -ge $max_attempts ]]; then
+              echo "ERROR: Containerd socket failed to appear after $max_attempts attempts"
+              echo "Systemd status:"
+              sudo systemctl status containerd 2>&1 || true
+              echo "Containerd logs (last 100 lines):"
+              tail -100 /tmp/containerd.log 2>&1 || true
+              ls -la /run/containerd/ 2>&1 || true
+              exit 1
+            fi
+            echo "Attempt $((attempt + 1))/$max_attempts: Waiting for socket..."
+            sleep 1
+            ((attempt++))
+          done
+          
+          # Verify ctr can connect to the socket
+          echo "Socket ready. Verifying ctr connectivity..."
+          for i in {1..10}; do
+            if sudo timeout 2 ctr version >/dev/null 2>&1; then
+              echo "✓ Containerd is ready"
+              break
+            fi
+            if [[ $i -eq 10 ]]; then
+              echo "ERROR: ctr version failed even though socket exists"
+              echo "Socket file status:"
+              ls -la /run/containerd/containerd.sock
+              echo "Systemd status:"
+              sudo systemctl status containerd 2>&1 || true
+              echo "Containerd logs (last 100 lines):"
+              tail -100 /tmp/containerd.log 2>&1 || true
+              exit 1
+            fi
+            echo "  ctr attempt $i/10, retrying..."
+            sleep 1
+          done
+          
+          sudo ctr version
+          
+          # Verify CNI plugins
+          echo "✓ CNI plugins available:"
+          ls -1 /opt/cni/bin | grep -E '^(bridge|host-local|portmap)$'
+
+      - name: Run real-runtime smoke suite
+        shell: bash
+        run: |
+          cargo test -p kubelet-cri test_health_check --locked -- --ignored --nocapture
+          cargo test -p kubelet-adapters test_cni_from_real_ci_dirs_detects_config --locked -- --ignored --nocapture
+          cargo test -p kubelet --test conformance -- --nocapture

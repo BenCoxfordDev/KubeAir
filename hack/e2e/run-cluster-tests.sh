@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+#
+# Copyright 2026 Ben Coxford.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# run-cluster-tests.sh — Run kube-air Rust conformance, smoke, and live e2e
+#                         tests against an already-provisioned cluster.
+#
+# Runs ON the Linux node (Colima VM or GitHub runner) after setup-node.sh.
+#
+# Environment variables:
+#   KUBEAIR_REPO_PATH   Path to the kube-air source tree. Default /opt/kubeair.
+#   KUBECONFIG          Path to admin kubeconfig. Default /etc/kubernetes/admin.conf.
+#   CARGO_BUILD_JOBS    Parallel Cargo jobs. Default 2.
+#   RUN_UNIT_TESTS      Run lib/conformance/smoke unit tests. Default "1".
+#   RUN_E2E_TESTS       Run live cluster e2e tests. Default "1".
+#   TEST_FILTER         Optional cargo test filter (name substring) for e2e tests.
+#   ARTIFACT_DIR        Directory to write test output/logs. Default /tmp/kubeair-test-artifacts.
+set -euo pipefail
+
+# Ensure cargo/rustc are on PATH when run as a non-login shell.
+# shellcheck source=/dev/null
+[[ -f "${HOME}/.cargo/env" ]] && source "${HOME}/.cargo/env"
+
+KUBEAIR_REPO_PATH="${KUBEAIR_REPO_PATH:-/opt/kubeair}"
+# Prefer the user-readable kubeconfig; fall back to admin.conf for root.
+KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
+[[ -f "$KUBECONFIG" ]] || KUBECONFIG="/etc/kubernetes/admin.conf"
+CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+RUN_UNIT_TESTS="${RUN_UNIT_TESTS:-1}"
+RUN_E2E_TESTS="${RUN_E2E_TESTS:-1}"
+TEST_FILTER="${TEST_FILTER:-}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-/tmp/kubeair-test-artifacts}"
+
+log()  { printf '[run-tests] %s\n' "$*"; }
+die()  { printf '[run-tests] ERROR: %s\n' "$*" >&2; exit 1; }
+step() { printf '\n[run-tests] ══ %s ══\n' "$*"; }
+
+[[ -d "$KUBEAIR_REPO_PATH" ]] || die "kube-air repo not found at $KUBEAIR_REPO_PATH"
+[[ -f "$KUBECONFIG" ]] || die "kubeconfig not found at $KUBECONFIG"
+
+mkdir -p "$ARTIFACT_DIR"
+cd "$KUBEAIR_REPO_PATH"
+
+export KUBECONFIG
+export CARGO_BUILD_JOBS
+
+OVERALL_PASS=0  # 0 = pass, non-zero = fail
+
+run_suite() {
+  local label=$1; shift
+  local log_file="$ARTIFACT_DIR/${label}.log"
+  log "Running: $label"
+  if "$@" 2>&1 | tee "$log_file"; then
+    log "PASS: $label"
+  else
+    log "FAIL: $label (see $log_file)"
+    OVERALL_PASS=1
+  fi
+}
+
+# ── Unit / conformance / smoke tests (no live cluster needed) ─────────────────
+
+if [[ "$RUN_UNIT_TESTS" == "1" ]]; then
+  step "Unit, conformance, and smoke tests"
+
+  run_suite "lib-tests" \
+    cargo test --workspace --lib --all-features --locked \
+      -j "$CARGO_BUILD_JOBS" -- --test-threads=4
+
+  run_suite "conformance" \
+    cargo test --test conformance --all-features --locked \
+      -j "$CARGO_BUILD_JOBS"
+
+  run_suite "smoke" \
+    cargo test --test smoke --all-features --locked \
+      -j "$CARGO_BUILD_JOBS"
+
+  run_suite "integration" \
+    cargo test --test integration --all-features --locked \
+      -j "$CARGO_BUILD_JOBS"
+fi
+
+# ── Live cluster e2e tests ────────────────────────────────────────────────────
+
+if [[ "$RUN_E2E_TESTS" == "1" ]]; then
+  step "Live cluster e2e tests"
+
+  # Verify cluster is reachable before running tests
+  log "Verifying cluster connectivity..."
+  kubectl --kubeconfig "$KUBECONFIG" cluster-info \
+    || die "Cannot reach cluster. Is the cluster running?"
+
+  FILTER_ARG=""
+  [[ -n "$TEST_FILTER" ]] && FILTER_ARG="$TEST_FILTER"
+
+  run_suite "e2e_cluster_health" \
+    cargo test --test e2e_cluster_health --all-features --locked \
+      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+
+  run_suite "e2e_containerd_status" \
+    cargo test --test e2e_containerd_status --all-features --locked \
+      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+
+  run_suite "e2e_kubectl_ops" \
+    cargo test --test e2e_kubectl_ops --all-features --locked \
+      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+
+  run_suite "e2e_workload_features" \
+    cargo test --test e2e_workload_features --all-features --locked \
+      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+
+  run_suite "e2e_container_cleanup" \
+    cargo test --test e2e_container_cleanup --all-features --locked \
+      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+
+step "Test summary"
+log "Artifacts written to: $ARTIFACT_DIR"
+ls -lh "$ARTIFACT_DIR" || true
+
+if [[ "$OVERALL_PASS" -ne 0 ]]; then
+  die "One or more test suites FAILED. Review logs in $ARTIFACT_DIR"
+fi
+
+log "All test suites PASSED"
+exit 0

@@ -1,0 +1,167 @@
+name: Benchmark
+on:
+  pull_request:
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.lock'
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.lock'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Rust toolchain is preinstalled
+        shell: bash
+        run: |
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          command -v rustc
+          command -v cargo
+          rustc --version
+          cargo --version
+
+      - name: Install protoc
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-bench"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Benchmark
+        run: cargo bench --workspace --all-features --locked 2>&1 | tee benchmark.log
+
+      - name: Parse and Display Benchmark Results
+        if: always()
+        shell: bash
+        run: |
+          echo "# Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Extract benchmark results from the log
+          echo "## Performance Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "^(test |running |result:)" benchmark.log | tail -50 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Extract criterion results if available
+          if [ -d target/criterion ]; then
+            echo "## Criterion Benchmark Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            find target/criterion -name "raw.json" -exec echo "Found criterion output" \; | head -1 >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Pod Scaling: Memory (RSS)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if grep -q "Pods   Ctrs" benchmark.log; then
+            echo "| Pods | Containers/Pod | RSS Before | RSS After | Delta | Per-Pod |" >> $GITHUB_STEP_SUMMARY
+            echo "| ---: | ---: | ---: | ---: | ---: | ---: |" >> $GITHUB_STEP_SUMMARY
+            awk '
+              /Pods   Ctrs/ { in_table=1; next }
+              /Note: RSS measurements/ { in_table=0 }
+              in_table && /│/ {
+                n = split($0, parts, "│")
+                if (n < 6) next
+
+                left = parts[1]
+                gsub(/^ +| +$/, "", left)
+                split(left, cols, / +/)
+                pods = cols[1]
+                ctrs = cols[2]
+
+                before = parts[2]
+                after = parts[3]
+                delta = parts[4]
+                perpod = parts[5]
+
+                gsub(/^ +| +$/, "", before)
+                gsub(/^ +| +$/, "", after)
+                gsub(/^ +| +$/, "", delta)
+                gsub(/^ +| +$/, "", perpod)
+
+                if (pods ~ /^[0-9]+$/ && ctrs ~ /^[0-9]+$/) {
+                  printf("| %s | %s | %s | %s | %s | %s |\\n", pods, ctrs, before, after, delta, perpod)
+                }
+              }
+            ' benchmark.log >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Memory scaling report not found in benchmark output." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Pod Scaling: CPU (Time/Op)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Wall-time per operation from Criterion (lower is better)." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if grep -Eq "pod_manager/upsert_pods/[0-9]+ +time:" benchmark.log; then
+            echo "| Benchmark | Pods | Estimated Time/Op |" >> $GITHUB_STEP_SUMMARY
+            echo "| --- | ---: | ---: |" >> $GITHUB_STEP_SUMMARY
+            awk '
+              match($0, /pod_manager\/upsert_pods\/([0-9]+)/, m) {
+                pods = m[1]
+                if (match($0, /time:[[:space:]]*\[[^ ]+[[:space:]]+[^ ]+[[:space:]]+([^]]+)\]/, t)) {
+                  est = t[1]
+                  gsub(/^ +| +$/, "", est)
+                  printf("| pod_manager/upsert_pods | %s | %s |\\n", pods, est)
+                }
+              }
+            ' benchmark.log >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Pod manager CPU scaling lines not found in benchmark output." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if grep -Eq "server_pod_list/list_pods_count/[0-9]+ +time:" benchmark.log; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Benchmark | Pods | Estimated Time/Op |" >> $GITHUB_STEP_SUMMARY
+            echo "| --- | ---: | ---: |" >> $GITHUB_STEP_SUMMARY
+            awk '
+              match($0, /server_pod_list\/list_pods_count\/([0-9]+)/, m) {
+                pods = m[1]
+                if (match($0, /time:[[:space:]]*\[[^ ]+[[:space:]]+[^ ]+[[:space:]]+([^]]+)\]/, t)) {
+                  est = t[1]
+                  gsub(/^ +| +$/, "", est)
+                  printf("| server_pod_list/list_pods_count | %s | %s |\\n", pods, est)
+                }
+              }
+            ' benchmark.log >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Display a summary in the logs
+          echo ""
+          echo "═══════════════════════════════════════════════════════"
+          echo "           BENCHMARK EXECUTION COMPLETED              "
+          echo "═══════════════════════════════════════════════════════"
+          echo ""
+          
+          # Print final summary lines from benchmark log
+          if grep -q "test result:" benchmark.log; then
+            echo "Test Results:"
+            grep "test result:" benchmark.log | tail -1
+          fi
+          
+          echo ""
+          echo "Full benchmark log saved to: benchmark.log"
+          echo "Criterion results available at: target/criterion/"

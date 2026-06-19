@@ -1,0 +1,195 @@
+[workspace]
+members = [
+    "crates/kubelet-core",
+    "crates/kubelet-ports",
+    "crates/kubelet-adapters",
+    "crates/kubelet-app",
+    "crates/kubelet-cri",
+    ".",
+]
+resolver = "2"
+
+[workspace.package]
+version = "1.33.0"
+edition = "2021"
+authors = ["Ben Coxford"]
+license = "Apache-2.0"
+description = "A Rust reimplementation of the Kubernetes kubelet"
+
+[workspace.dependencies]
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+
+# Memory allocator: jemalloc reduces fragmentation from glibc's per-thread arenas
+tikv-jemallocator = { version = "0.6", features = ["unprefixed_malloc_on_supported_platforms"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# HTTP
+axum = { version = "0.7", features = ["json", "macros", "ws"] }
+hyper = { version = "1", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "auth", "compression-br"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls-native-roots"], default-features = false }
+
+# Kubernetes types
+kube = { version = "0.91", default-features = false, features = ["runtime", "derive", "client", "ws", "rustls-tls"] }
+k8s-openapi = { version = "0.22", features = ["v1_30"] }
+
+# Logging/tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Prometheus metrics
+prometheus = { version = "0.14", features = ["process"] }
+
+# Utilities
+uuid = { version = "1", features = ["v4", "v5"] }
+chrono = { version = "0.4", features = ["serde"] }
+bytes = "1"
+futures = "0.3"
+async-trait = "0.1"
+dashmap = "5"
+parking_lot = "0.12"
+once_cell = "1"
+flate2 = { version = "1", features = ["zlib-rs"] }
+regex = "1"
+url = "2"
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.8"
+ring = "0.17"
+rcgen = "0.13"
+libc = "0.2"
+rustls = { version = "0.23", features = ["ring"], default-features = false }
+tonic = { version = "0.12", features = ["transport", "tls"] }
+prost = "0.13"
+prost-types = "0.13"
+tempfile = "3"
+nix = { version = "0.28", features = ["signal", "process", "fs", "mount"] }
+
+# Testing
+mockall = "0.12"
+rstest = "0.19"
+
+[package]
+name = "kubelet"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kubernetes kubelet reimplemented in Rust - binary entry point"
+
+[[bin]]
+name = "kubelet"
+path = "src/main.rs"
+
+[dependencies]
+kubelet-app = { path = "crates/kubelet-app" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+rustls = { workspace = true }
+tikv-jemallocator = { workspace = true }
+
+[[test]]
+name = "integration"
+path = "tests/integration/pod_lifecycle_test.rs"
+
+[[test]]
+name = "integration_downward_api_env"
+path = "tests/integration/downward_api_env_test.rs"
+
+[[test]]
+name = "integration_runtime_network_storage"
+path = "tests/integration/runtime_network_storage_test.rs"
+
+[[test]]
+name = "integration_resource_orchestration"
+path = "tests/integration/resource_orchestration_test.rs"
+
+[[test]]
+name = "integration_security_context"
+path = "tests/integration/security_context_test.rs"
+
+[[test]]
+name = "integration_container_state"
+path = "tests/integration/container_state_test.rs"
+
+[[test]]
+name = "smoke"
+path = "tests/smoke/smoke_test.rs"
+
+[[test]]
+name = "conformance"
+path = "tests/conformance/conformance_test.rs"
+
+[[test]]
+name = "e2e_cluster_health"
+path = "tests/e2e/cluster_health_test.rs"
+
+[[test]]
+name = "e2e_containerd_status"
+path = "tests/e2e/containerd_api_status_test.rs"
+
+[[test]]
+name = "e2e_kubectl_ops"
+path = "tests/e2e/kubectl_ops_test.rs"
+
+[[test]]
+name = "e2e_workload_features"
+path = "tests/e2e/workload_features_test.rs"
+
+[[test]]
+name = "e2e_container_cleanup"
+path = "tests/e2e/container_cleanup_test.rs"
+
+[dev-dependencies]
+kube = { workspace = true }
+k8s-openapi = { workspace = true }
+serde = { workspace = true }
+rustls = { workspace = true }
+kubelet-core = { path = "crates/kubelet-core" }
+kubelet-app = { path = "crates/kubelet-app" }
+kubelet-adapters = { path = "crates/kubelet-adapters" }
+kubelet-ports = { path = "crates/kubelet-ports" }
+kubelet-cri = { path = "crates/kubelet-cri" }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+criterion = { workspace = true }
+bytes = { workspace = true }
+tempfile = { workspace = true }
+tonic = { workspace = true }
+tower = { workspace = true }
+futures = { workspace = true }
+hyper-util = "0.1"
+
+[[bench]]
+name = "pod_operations"
+harness = false
+
+[[bench]]
+name = "memory_profile"
+harness = false
+
+[[bench]]
+name = "server_throughput"
+harness = false

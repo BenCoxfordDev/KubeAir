@@ -1,0 +1,274 @@
+name: Kubeadm E2E
+
+# Full integration test: provision a real single-node Kubernetes cluster with
+# containerd + kubeadm + Calico eBPF, deploy the kube-air kubelet, and run
+# Rust conformance + live cluster e2e tests.
+#
+# This workflow uses the same setup-node.sh script as the macOS Colima flow
+# (hack/e2e/colima-run.sh) — only the base image delivery differs.
+#
+# Topology:
+#   GitHub ubuntu-24.04 runner (bare metal or VM)
+#     └── containerd (system) + kubeadm init
+#         └── kube-air kubelet binary
+#             └── Calico eBPF CNI
+#
+# Triggers:
+#   workflow_dispatch  — manual run with tunable parameters
+#   push to main       — on changes to kubelet source or e2e scripts
+
+on:
+  workflow_dispatch:
+    inputs:
+      kubernetes_version:
+        description: "Kubernetes version (without 'v' prefix)"
+        required: false
+        default: "1.33.0"
+        type: string
+      calico_version:
+        description: "Calico / Tigera operator version"
+        required: false
+        default: "v3.29.1"
+        type: string
+      calico_ebpf:
+        description: "Enable Calico eBPF dataplane"
+        required: false
+        default: "1"
+        type: string
+      run_unit_tests:
+        description: "Run unit/conformance/smoke tests"
+        required: false
+        default: "1"
+        type: string
+      run_e2e_tests:
+        description: "Run live cluster e2e tests"
+        required: false
+        default: "1"
+        type: string
+      reset_cluster:
+        description: "kubeadm reset before init (useful for re-runs on self-hosted)"
+        required: false
+        default: "0"
+        type: string
+
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'crates/**/*.rs'
+      - 'tests/e2e/**'
+      - 'hack/e2e/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KUBERNETES_VERSION: ${{ inputs.kubernetes_version || '1.33.0' }}
+  CALICO_VERSION:     ${{ inputs.calico_version    || 'v3.29.1' }}
+  CALICO_EBPF:        ${{ inputs.calico_ebpf       || '1' }}
+  RUN_UNIT_TESTS:     ${{ inputs.run_unit_tests     || '1' }}
+  RUN_E2E_TESTS:      ${{ inputs.run_e2e_tests      || '1' }}
+  RESET_CLUSTER:      ${{ inputs.reset_cluster      || '0' }}
+  KUBEAIR_REPO_PATH:  ${{ github.workspace }}
+  ARTIFACT_DIR:       /tmp/kubeair-e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+  KUBELET_BIN:        /tmp/kubelet-bin/kubelet
+
+jobs:
+  kubeadm-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: "0"
+
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────────────
+
+      - name: Checkout kube-air
+        uses: actions/checkout@v4
+
+      # ── Free disk space ───────────────────────────────────────────────────────
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+
+      # ── Rust toolchain ────────────────────────────────────────────────────────
+
+      - name: Verify Rust toolchain
+        shell: bash
+        run: |
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          rustc --version
+          cargo --version
+
+      - name: Install build prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler
+          protoc --version
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-e2e"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # ── Build kube-air kubelet ────────────────────────────────────────────────
+
+      - name: Build kube-air kubelet binary
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$KUBELET_BIN")"
+          cargo build --release --bin kubelet --locked
+          cp target/release/kubelet "$KUBELET_BIN"
+          echo "Built: $KUBELET_BIN ($(du -sh "$KUBELET_BIN" | cut -f1))"
+          file "$KUBELET_BIN"
+
+      - name: Clean build artifacts to free disk space
+        shell: bash
+        run: |
+          # The binary is already copied; remove the target dir (~5-10 GB)
+          # to make room for Kubernetes + container images.
+          rm -rf target
+          df -h /
+
+      # ── Provision cluster ─────────────────────────────────────────────────────
+
+      - name: Make setup scripts executable
+        shell: bash
+        run: |
+          chmod +x hack/e2e/setup-node.sh
+          chmod +x hack/e2e/run-cluster-tests.sh
+
+      - name: Provision single-node cluster (containerd + kubeadm + Calico eBPF)
+        shell: bash
+        run: |
+          sudo --preserve-env=KUBELET_BIN,KUBERNETES_VERSION,CALICO_VERSION,CALICO_EBPF,RESET_CLUSTER \
+            env \
+              KUBELET_BIN="$KUBELET_BIN" \
+              KUBERNETES_VERSION="$KUBERNETES_VERSION" \
+              CALICO_VERSION="$CALICO_VERSION" \
+              CALICO_EBPF="$CALICO_EBPF" \
+              RESET_EXISTING_CLUSTER="$RESET_CLUSTER" \
+              NODE_NAME="$(hostname)" \
+              KUBEAIR_REPO_PATH="$KUBEAIR_REPO_PATH" \
+            bash hack/e2e/setup-node.sh 2>&1 | tee /tmp/setup-node.log
+
+      - name: Upload setup-node log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-node-log
+          path: /tmp/setup-node.log
+          if-no-files-found: ignore
+
+      # ── Verify cluster is healthy ─────────────────────────────────────────────
+
+      - name: Verify node is Ready
+        shell: bash
+        run: |
+          export KUBECONFIG=/etc/kubernetes/admin.conf
+          echo "=== Nodes ==="
+          sudo kubectl get nodes -o wide
+          echo "=== All pods ==="
+          sudo kubectl get pods --all-namespaces
+
+      - name: Wait for CoreDNS
+        shell: bash
+        run: |
+          export KUBECONFIG=/etc/kubernetes/admin.conf
+          echo "Waiting for CoreDNS to be Running..."
+          for i in $(seq 1 60); do
+            COUNT=$(sudo kubectl get pods -n kube-system -l k8s-app=kube-dns \
+              --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+            if [[ "$COUNT" -ge 1 ]]; then
+              echo "CoreDNS is Running ($COUNT pods)"
+              break
+            fi
+            echo "Attempt $i/60: CoreDNS not ready yet..."
+            sleep 10
+          done
+          sudo kubectl get pods -n kube-system -l k8s-app=kube-dns
+
+      - name: Wait for Calico pods
+        shell: bash
+        run: |
+          export KUBECONFIG=/etc/kubernetes/admin.conf
+          echo "Waiting for Calico node pods..."
+          for i in $(seq 1 72); do
+            COUNT_CS=$(sudo kubectl get pods -n calico-system -l k8s-app=calico-node \
+              --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l || echo 0)
+            COUNT_KS=$(sudo kubectl get pods -n kube-system -l k8s-app=calico-node \
+              --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l || echo 0)
+            COUNT=$((COUNT_CS + COUNT_KS))
+            if [[ "$COUNT" -ge 1 ]]; then
+              echo "Calico node pods Running ($COUNT)"
+              break
+            fi
+            echo "Attempt $i/72: Calico not ready yet..."
+            sleep 10
+          done
+          sudo kubectl get pods --all-namespaces -l k8s-app=calico-node || true
+
+      # ── Run tests ─────────────────────────────────────────────────────────────
+
+      - name: Run kube-air test suites
+        shell: bash
+        run: |
+          # Tests need to write kubeconfig; run as current user but with
+          # sudo-readable kubeconfig copied to a user-readable path.
+          sudo cp /etc/kubernetes/admin.conf /tmp/kubeair-admin.conf
+          sudo chown "$(id -u):$(id -g)" /tmp/kubeair-admin.conf
+
+          KUBECONFIG=/tmp/kubeair-admin.conf \
+          KUBEAIR_REPO_PATH="$KUBEAIR_REPO_PATH" \
+          CARGO_BUILD_JOBS=2 \
+          RUN_UNIT_TESTS="$RUN_UNIT_TESTS" \
+          RUN_E2E_TESTS="$RUN_E2E_TESTS" \
+          ARTIFACT_DIR="$ARTIFACT_DIR" \
+          bash hack/e2e/run-cluster-tests.sh 2>&1 | tee /tmp/run-cluster-tests.log
+
+      # ── Artifacts ─────────────────────────────────────────────────────────────
+
+      - name: Collect cluster state on failure
+        if: failure()
+        shell: bash
+        run: |
+          export KUBECONFIG=/etc/kubernetes/admin.conf
+          mkdir -p "$ARTIFACT_DIR/cluster-state"
+          sudo kubectl get pods --all-namespaces -o wide \
+            > "$ARTIFACT_DIR/cluster-state/pods.txt" 2>&1 || true
+          sudo kubectl get nodes -o wide \
+            > "$ARTIFACT_DIR/cluster-state/nodes.txt" 2>&1 || true
+          sudo kubectl describe nodes \
+            > "$ARTIFACT_DIR/cluster-state/describe-nodes.txt" 2>&1 || true
+          sudo kubectl get events --all-namespaces --sort-by=.lastTimestamp \
+            > "$ARTIFACT_DIR/cluster-state/events.txt" 2>&1 || true
+          sudo journalctl -u kubelet --no-pager -n 200 \
+            > "$ARTIFACT_DIR/cluster-state/kubelet.log" 2>&1 || true
+          sudo journalctl -u containerd --no-pager -n 100 \
+            > "$ARTIFACT_DIR/cluster-state/containerd.log" 2>&1 || true
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubeadm-e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.ARTIFACT_DIR }}/
+            /tmp/setup-node.log
+            /tmp/run-cluster-tests.log
+            /tmp/kubeadm-init.log
+          if-no-files-found: ignore

@@ -1,0 +1,119 @@
+name: Build Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Architecture to build
+        required: true
+        type: choice
+        options:
+          - amd64
+          - arm64
+          - both
+        default: both
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(
+          github.event.inputs.architecture == 'amd64' && '[{"target":"x86_64-unknown-linux-gnu","artifact_arch":"amd64"}]' ||
+          github.event.inputs.architecture == 'arm64' && '[{"target":"aarch64-unknown-linux-gnu","artifact_arch":"arm64"}]' ||
+          '[{"target":"x86_64-unknown-linux-gnu","artifact_arch":"amd64"},{"target":"aarch64-unknown-linux-gnu","artifact_arch":"arm64"}]'
+          ) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Rust toolchain is preinstalled
+        shell: bash
+        run: |
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          command -v rustc
+          command -v cargo
+          command -v rustup
+          rustc --version
+          cargo --version
+          rustup --version
+
+      - name: Install Rust target
+        shell: bash
+        run: |
+          rustup target add "${{ matrix.target }}"
+          rustup target list --installed
+
+      - name: Install protoc
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+
+      - name: Install cross-compilers
+        shell: bash
+        run: |
+          sudo apt-get update
+          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
+            sudo apt-get install -y gcc-x86-64-linux-gnu
+          else
+            echo "Native arm64 build; no cross-compiler required"
+          fi
+
+      - name: Build kubelet
+        shell: bash
+        run: |
+          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
+            CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
+              cargo build --release --locked --bin kubelet --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --bin kubelet --target ${{ matrix.target }}
+          fi
+
+      - name: Package artifact
+        id: package
+        shell: bash
+        run: |
+          ARTIFACT="kubelet-linux_${{ matrix.artifact_arch }}.tar.gz"
+
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/kubelet" dist/kubelet
+
+          tar -C dist -czf "$ARTIFACT" kubelet
+          sha256sum "$ARTIFACT" > "${ARTIFACT}.sha256"
+
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifacts
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubelet-${{ matrix.artifact_arch }}
+          path: |
+            ${{ steps.package.outputs.artifact }}
+            ${{ steps.package.outputs.artifact }}.sha256
+          if-no-files-found: error
+
+      - name: Publish artifact link
+        shell: bash
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_NAME: ${{ steps.upload.outputs.artifact-name }}
+        run: |
+          URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${ARTIFACT_ID}"
+
+          {
+            echo "### Build output (${{ matrix.artifact_arch }})"
+            echo
+            echo "- Artifact: ${ARTIFACT_NAME}"
+            echo "- Download: ${URL}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Artifact (${ARTIFACT_NAME}): ${URL}"

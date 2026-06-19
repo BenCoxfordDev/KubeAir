@@ -1,0 +1,23 @@
+[package]
+name = "kubelet-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+k8s-openapi = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+serde_yaml = { workspace = true }
+hostname = "0.3"
+
+[dev-dependencies]
+rstest = { workspace = true }
