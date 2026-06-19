@@ -23,16 +23,18 @@ jobs:
       relevant: ${{ steps.filter.outputs.relevant }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            relevant:
-              - 'Cargo.lock'
-              - 'Cargo.toml'
-              - 'crates/**/*.rs'
-              - 'tests/**/*.rs'
-              - '.github/workflows/runtime-smoke.yml'
+          fetch-depth: 0
+      - name: Check relevant paths
+        id: filter
+        shell: bash
+        run: |
+          CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          if echo "$CHANGED" | grep -qE '^(Cargo\.lock$|Cargo\.toml$|crates/.*\.rs$|tests/.*\.rs$|\.github/workflows/runtime-smoke\.yml$)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
 
   runtime-smoke:
     needs: [check-changes]
