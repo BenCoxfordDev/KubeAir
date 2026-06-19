@@ -7,6 +7,7 @@ on:
     paths:
       - 'Cargo.lock'
       - 'Cargo.toml'
+      - 'rust-toolchain.toml'
       - 'crates/**/*.rs'
       - 'tests/**/*.rs'
   workflow_dispatch:
@@ -33,7 +34,7 @@ jobs:
         shell: bash
         run: |
           CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
-          if echo "$CHANGED" | grep -qE '^(Cargo\.lock$|Cargo\.toml$|crates/.*\.rs$|tests/.*\.rs$|\.github/workflows/runtime-smoke\.yml$)'; then
+          if echo "$CHANGED" | grep -qE '^(Cargo\.lock$|Cargo\.toml$|rust-toolchain\.toml$|crates/.*\.rs$|tests/.*\.rs$|\.github/workflows/runtime-smoke\.yml$)'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"

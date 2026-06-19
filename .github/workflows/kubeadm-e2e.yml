@@ -63,6 +63,7 @@ on:
       - 'hack/e2e/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'rust-toolchain.toml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -97,7 +98,7 @@ jobs:
         shell: bash
         run: |
           CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
-          if echo "$CHANGED" | grep -qE '^(src/|crates/.*\.rs$|tests/e2e/|hack/e2e/|Cargo\.toml$|Cargo\.lock$|\.github/workflows/kubeadm-e2e\.yml$)'; then
+          if echo "$CHANGED" | grep -qE '^(src/|crates/.*\.rs$|tests/e2e/|hack/e2e/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.github/workflows/kubeadm-e2e\.yml$)'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"

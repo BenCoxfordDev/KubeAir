@@ -1701,33 +1701,31 @@ impl PodWorker {
                     name,
                     items: _,
                     optional,
-                } => {
-                    if !secrets.contains_key(name) {
-                        let api: Api<Secret> = Api::namespaced(
-                            client.clone().ok_or_else(|| {
-                                KubeletError::Runtime("missing kube client".to_string())
-                            })?,
-                            &pod.pod_ref.namespace,
-                        );
-                        match api.get(name).await {
-                            Ok(secret) => {
-                                let data = secret
-                                    .data
-                                    .unwrap_or_default()
-                                    .into_iter()
-                                    .map(|(key, value)| (key, value.0))
-                                    .collect();
-                                secrets.insert(name.clone(), data);
-                            }
-                            Err(e) => {
-                                if *optional {
-                                    debug!(pod = %pod.pod_ref, secret = %name, "Optional Secret not found for projected volume");
-                                } else {
-                                    return Err(KubeletError::Runtime(format!(
-                                        "failed to fetch Secret '{}' for projected volume: {}",
-                                        name, e
-                                    )));
-                                }
+                } if !secrets.contains_key(name) => {
+                    let api: Api<Secret> = Api::namespaced(
+                        client.clone().ok_or_else(|| {
+                            KubeletError::Runtime("missing kube client".to_string())
+                        })?,
+                        &pod.pod_ref.namespace,
+                    );
+                    match api.get(name).await {
+                        Ok(secret) => {
+                            let data = secret
+                                .data
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|(key, value)| (key, value.0))
+                                .collect();
+                            secrets.insert(name.clone(), data);
+                        }
+                        Err(e) => {
+                            if *optional {
+                                debug!(pod = %pod.pod_ref, secret = %name, "Optional Secret not found for projected volume");
+                            } else {
+                                return Err(KubeletError::Runtime(format!(
+                                    "failed to fetch Secret '{}' for projected volume: {}",
+                                    name, e
+                                )));
                             }
                         }
                     }
@@ -3829,7 +3827,7 @@ async fn load_single_configmap(
             );
             Ok(())
         }
-        Err(err) if optional => Ok(()),
+        Err(_err) if optional => Ok(()),
         Err(err) => Err(KubeletError::Runtime(format!(
             "failed to fetch ConfigMap '{}': {}",
             name, err
@@ -3879,7 +3877,7 @@ async fn load_single_secret(
             secrets.insert(name.to_string(), data);
             Ok(())
         }
-        Err(err) if optional => Ok(()),
+        Err(_err) if optional => Ok(()),
         Err(err) => Err(KubeletError::Runtime(format!(
             "failed to fetch Secret '{}': {}",
             name, err

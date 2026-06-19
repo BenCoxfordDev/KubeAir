@@ -278,7 +278,7 @@ fn print_memory_report() {
 
             let after = rss_bytes();
             let delta = after.saturating_sub(before);
-            let per_pod = if pod_count > 0 { delta / pod_count } else { 0 };
+            let per_pod = delta.checked_div(pod_count).unwrap_or(0);
 
             println!(
                 "  {:5}  {:4} │ {:10} │ {:10} │ {:10} │ {:9}",
