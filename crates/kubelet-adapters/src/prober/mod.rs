@@ -37,7 +37,6 @@ static PROBE_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 fn probe_http_client() -> Option<&'static reqwest::Client> {
     Some(PROBE_HTTP_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
             .build()
             .expect("failed to build shared probe HTTP client")
     }))

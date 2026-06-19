@@ -191,7 +191,6 @@ impl ProbeRunner {
 
                 let client = reqwest::Client::builder()
                     .timeout(timeout)
-                    .danger_accept_invalid_certs(true)
                     .build()
                     .map_err(|e| KubeletError::Probe(format!("HTTP client: {}", e)))?;
 

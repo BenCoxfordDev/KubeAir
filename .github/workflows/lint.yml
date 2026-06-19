@@ -5,8 +5,12 @@ on:
     branches:
       - main
     paths:
-      - '**/*.rs'
-      - '**/Cargo.lock'
+      - 'src/**'
+      - 'crates/**/*.rs'
+      - 'tests/e2e/**'
+      - 'hack/e2e/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,7 +20,29 @@ permissions:
   contents: read
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check relevant paths
+        id: filter
+        shell: bash
+        run: |
+          CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          if echo "$CHANGED" | grep -qE '^(src/|crates/.*\.rs$|tests/e2e/|hack/e2e/|Cargo\.toml$|Cargo\.lock$|\.github/workflows/lint\.yml$)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
+    needs: [check-changes]
+    if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
     env:
       CARGO_INCREMENTAL: "0"

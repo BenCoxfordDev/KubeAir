@@ -111,7 +111,6 @@ impl LifecycleHookExecutor {
 
         let client = reqwest::Client::builder()
             .timeout(self.timeout)
-            .danger_accept_invalid_certs(true) // containers may use self-signed certs
             .build()
             .map_err(|e| KubeletError::Lifecycle(format!("HTTP client build: {}", e)))?;
 

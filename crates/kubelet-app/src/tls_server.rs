@@ -215,11 +215,12 @@ mod tests {
     use crate::server::{build_router, ServerState};
     use kubelet_adapters::mock_runtime::MockRuntime;
     use kubelet_core::pod::manager::PodManager;
+    use kubelet_ports::driven::container_runtime::ContainerRuntime;
     use std::sync::Arc;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
-    async fn start_tls_test_server() -> (u16, tokio::task::JoinHandle<()>) {
+    async fn start_tls_test_server() -> (u16, tokio::task::JoinHandle<()>, Vec<u8>) {
         let temp_dir = Arc::new(TempDir::new().unwrap());
         let cert_path = temp_dir.path().join("kubelet-serving.crt");
         let key_path = temp_dir.path().join("kubelet-serving.key");
@@ -230,13 +231,15 @@ mod tests {
             "127.0.0.1".to_string(),
         ])
         .unwrap();
-        std::fs::write(&cert_path, cert.cert.pem()).unwrap();
+        let cert_pem = cert.cert.pem().into_bytes();
+        std::fs::write(&cert_path, &cert_pem).unwrap();
         std::fs::write(&key_path, cert.key_pair.serialize_pem()).unwrap();
 
         let (tx, _rx) = mpsc::channel(10);
+        let runtime: Arc<dyn ContainerRuntime> = Arc::new(MockRuntime::new());
         let state = ServerState {
             pod_manager: Arc::new(PodManager::new(tx)),
-            runtime: Arc::new(MockRuntime::new()),
+            runtime,
             node_name: "test-node".to_string(),
             anonymous_auth: true,
             always_allow: true,
@@ -266,7 +269,7 @@ mod tests {
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        (port, handle)
+        (port, handle, cert_pem)
     }
 
     #[test]
@@ -288,10 +291,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_tls_configz_returns_ok() {
-        let (port, handle) = start_tls_test_server().await;
+        let (port, handle, cert_pem) = start_tls_test_server().await;
 
+        let server_cert = reqwest::Certificate::from_pem(&cert_pem).unwrap();
         let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .add_root_certificate(server_cert)
             .build()
             .unwrap();
 
