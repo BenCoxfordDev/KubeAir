@@ -338,6 +338,7 @@ impl RuntimeManager {
         let states = self.pod_states.clone();
         let reporter = self.reporter.clone();
         let pod_manager = self.pod_manager.clone();
+        let sync_slots = self.sync_slots.clone();
 
         tokio::spawn(async move {
             let state = {
@@ -355,6 +356,25 @@ impl RuntimeManager {
                 .await
             {
                 error!(pod = %pod.pod_ref, error = %e, "Pod termination failed");
+            }
+
+            // Wait for any concurrent sync_pod task to drain before running fallback
+            // cleanup.  A sync_pod task that was holding the state when we took it above
+            // may still be in the middle of creating containers.  If we run
+            // cleanup_pod_containerd_by_uid before that task finishes, the newly-created
+            // containers will be missed and remain in containerd as leaked records.
+            // Polling the sync_slot until it is gone ensures we see all containers that
+            // the concurrent sync could have created.
+            let sync_drain_deadline = std::time::Instant::now() + Duration::from_secs(30);
+            loop {
+                let still_running = {
+                    let slots = sync_slots.lock().await;
+                    slots.get(&pod.uid).map(|s| s.running).unwrap_or(false)
+                };
+                if !still_running || std::time::Instant::now() >= sync_drain_deadline {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
 
             // Fallback cleanup: if a concurrent sync_pod held the state when we took
