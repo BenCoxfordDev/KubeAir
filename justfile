@@ -38,5 +38,8 @@ lint:
 auto-fix:
   cargo clippy --fix --workspace --all-targets --all-features --allow-dirty --allow-staged
 
+generate-lockfile:
+  cargo generate-lockfile
+
 fmt:
   cargo fmt --all
