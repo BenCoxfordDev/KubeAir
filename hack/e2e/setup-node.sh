@@ -172,6 +172,35 @@ else
   wait_for_socket /run/containerd/containerd.sock 30
 fi
 
+# Allow the current (non-root) user to reach the containerd socket so that
+# e2e test helpers (ctr / crictl) work without sudo.  This matters on GitHub
+# Actions runners where the socket is root-owned.
+#
+# Strategy: create a 'containerd' group, add the current user to it, then
+# grant the socket to that group.  Because usermod changes don't take effect
+# in the running shell, we also chmod the socket directly so tools work
+# immediately in this session without re-login.
+CURRENT_USER="$(id -un)"
+if ! getent group containerd >/dev/null 2>&1; then
+  sudo groupadd --system containerd
+fi
+sudo usermod -aG containerd "$CURRENT_USER" || true
+# Write a systemd drop-in so the socket gets the right group on every restart.
+if has_systemd; then
+  sudo mkdir -p /etc/systemd/system/containerd.service.d
+  sudo tee /etc/systemd/system/containerd.service.d/socket-group.conf >/dev/null <<'DROPIN'
+[Service]
+ExecStartPost=/bin/sh -c 'chgrp containerd /run/containerd/containerd.sock && chmod g+rw /run/containerd/containerd.sock'
+DROPIN
+  sudo systemctl daemon-reload
+fi
+# Immediately fix the socket for this session (the drop-in only fires on restart).
+if [[ -S /run/containerd/containerd.sock ]]; then
+  sudo chgrp containerd /run/containerd/containerd.sock
+  sudo chmod g+rw    /run/containerd/containerd.sock
+  log "containerd socket group set to 'containerd' and made group-writable"
+fi
+
 # Install crictl — prefer apt package, fall back to GitHub release with retries
 if ! command -v crictl &>/dev/null; then
   step "Installing crictl"

@@ -62,13 +62,34 @@ async fn cluster_client() -> Client {
     Client::try_from(config).expect("Failed to build kube client")
 }
 
+/// Run a command, retrying with `sudo` if the first attempt fails due to a
+/// permission error on the containerd socket (common on GitHub Actions runners
+/// where the socket is root-owned and the runner user is unprivileged).
+fn run_with_sudo_fallback(prog: &str, args: &[&str]) -> std::process::Output {
+    let out = Command::new(prog)
+        .args(args)
+        .output()
+        .unwrap_or_else(|_| panic!("{prog} not found — is it installed?"));
+
+    // Retry with sudo if permission was denied (exit code non-zero and stderr
+    // contains "permission denied" / "connect: permission denied").
+    let stderr = String::from_utf8_lossy(&out.stderr).to_lowercase();
+    if !out.status.success() && stderr.contains("permission denied") {
+        Command::new("sudo")
+            .arg("-n") // non-interactive: fail rather than prompt
+            .arg(prog)
+            .args(args)
+            .output()
+            .unwrap_or(out)
+    } else {
+        out
+    }
+}
+
 /// Return all container IDs currently registered in the containerd k8s.io
 /// namespace (includes both running and stopped/exited records).
 fn ctr_container_ids() -> Vec<String> {
-    let out = Command::new("ctr")
-        .args(["-n", "k8s.io", "containers", "ls", "-q"])
-        .output()
-        .expect("ctr not found — is containerd installed?");
+    let out = run_with_sudo_fallback("ctr", &["-n", "k8s.io", "containers", "ls", "-q"]);
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .map(|l| l.trim().to_string())
@@ -80,10 +101,10 @@ fn ctr_container_ids() -> Vec<String> {
 /// Matches by pod sandbox ID, which is embedded in the crictl output.
 fn crictl_containers_for_pod(pod_name: &str, namespace: &str) -> Vec<String> {
     // First find the sandbox (pod) ID
-    let sandbox_out = Command::new("crictl")
-        .args(["pods", "--name", pod_name, "--namespace", namespace, "-q"])
-        .output()
-        .expect("crictl not found");
+    let sandbox_out = run_with_sudo_fallback(
+        "crictl",
+        &["pods", "--name", pod_name, "--namespace", namespace, "-q"],
+    );
 
     let sandbox_ids: Vec<String> = String::from_utf8_lossy(&sandbox_out.stdout)
         .lines()
@@ -96,10 +117,7 @@ fn crictl_containers_for_pod(pod_name: &str, namespace: &str) -> Vec<String> {
     }
 
     // Now list all containers and filter by sandbox ID
-    let ps_out = Command::new("crictl")
-        .args(["ps", "-a", "--output", "json"])
-        .output()
-        .expect("crictl not found");
+    let ps_out = run_with_sudo_fallback("crictl", &["ps", "-a", "--output", "json"]);
 
     let json: Value = serde_json::from_slice(&ps_out.stdout).unwrap_or(Value::Null);
     json["containers"]
