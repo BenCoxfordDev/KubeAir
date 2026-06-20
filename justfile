@@ -33,6 +33,7 @@ real-runtime-smoke:
 lint:
   cargo clippy --all-targets -- -D warnings
   cargo fmt --all -- --check
+  cargo deny check
 
 auto-fix:
   cargo clippy --fix --workspace --all-targets --all-features --allow-dirty --allow-staged

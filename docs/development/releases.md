@@ -78,7 +78,7 @@ Releases are **fully automated** via [`.github/workflows/release.yml`](../../.gi
 ### How the CI pipeline works
 
 ```
-Push to main (Cargo.toml changed)
+PR to main (Cargo.toml changed)
           │
           ▼
     ┌─────────────┐
