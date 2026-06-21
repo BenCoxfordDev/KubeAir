@@ -21,8 +21,8 @@ KubeAir now includes **Bazel 9.x with Modules** (no WORKSPACE) for building Rust
 
 | File | Purpose |
 |------|---------|
-| `README.bazel.md` | Quick start guide |
-| `BAZEL_SETUP_GUIDE.md` | This file |
+| `README.md` | Quick start guide |
+| `docs/development/bazelsetup.md` | Bazel setup guide |
 
 ## Getting Started
 
