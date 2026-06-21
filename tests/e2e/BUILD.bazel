@@ -1,13 +1,14 @@
 load("@rules_rust//rust:defs.bzl", "rust_test")
 
+# gazelle:ignore
 rust_test(
     name = "cluster_health_test",
     srcs = ["cluster_health_test.rs"],
     deps = [
         "@crates//:k8s-openapi",
         "@crates//:kube",
-        "@crates//:tokio",
         "@crates//:rustls",
+        "@crates//:tokio",
     ],
 )
 
@@ -17,9 +18,9 @@ rust_test(
     deps = [
         "@crates//:k8s-openapi",
         "@crates//:kube",
+        "@crates//:rustls",
         "@crates//:serde_json",
         "@crates//:tokio",
-        "@crates//:rustls",
     ],
 )
 
@@ -29,9 +30,9 @@ rust_test(
     deps = [
         "@crates//:k8s-openapi",
         "@crates//:kube",
+        "@crates//:rustls",
         "@crates//:serde_json",
         "@crates//:tokio",
-        "@crates//:rustls",
     ],
 )
 
@@ -41,8 +42,8 @@ rust_test(
     deps = [
         "@crates//:k8s-openapi",
         "@crates//:kube",
-        "@crates//:tokio",
         "@crates//:rustls",
+        "@crates//:tokio",
     ],
 )
 
@@ -51,12 +52,12 @@ rust_test(
     srcs = ["workload_features_test.rs"],
     deps = [
         "//crates/kubelet-adapters/src:lib",
+        "@crates//:hyper-util",
         "@crates//:k8s-openapi",
         "@crates//:kube",
-        "@crates//:tokio",
         "@crates//:rustls",
+        "@crates//:tokio",
         "@crates//:tonic",
         "@crates//:tower",
-        "@crates//:hyper-util",
     ],
 )

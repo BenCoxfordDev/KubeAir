@@ -1,39 +1,9 @@
-load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@gazelle//:def.bzl", "gazelle_binary")
 
-# Gazelle Rust plugin binary
-go_binary(
+# Custom Gazelle binary with the Rust language plugin.
+# gazelle_binary links our plugin with the Gazelle runtime automatically.
+gazelle_binary(
     name = "gazelle_bin",
-    embed = [":lib"],
+    languages = ["//hack/gazelle/plugins:plugins"],
     visibility = ["//visibility:public"],
-)
-
-# Shared library for the plugin
-go_library(
-    name = "lib",
-    srcs = ["main.go"],
-    importpath = "github.com/BenCoxfordDev/kubeair/hack/gazelle",
-    visibility = ["//visibility:private"],
-    deps = ["//hack/gazelle/plugins"],
-)
-
-# Plugin library
-go_library(
-    name = "plugins",
-    srcs = [
-        "plugins/parser.go",
-        "plugins/rust.go",
-    ],
-    importpath = "github.com/BenCoxfordDev/kubeair/hack/gazelle/plugins",
-    visibility = ["//visibility:public"],
-    deps = [
-        "@com_github_bazelbuild_bazel_gazelle//v2:gazelle",
-        "@com_github_bazelbuild_buildtools//build:build",
-    ],
-)
-
-# Plugin tests
-go_test(
-    name = "parser_test",
-    srcs = ["plugins/parser_test.go"],
-    embed = [":plugins"],
 )

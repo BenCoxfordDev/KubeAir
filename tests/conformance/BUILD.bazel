@@ -1,20 +1,8 @@
 load("@rules_rust//rust:defs.bzl", "rust_test")
 
+# gazelle:ignore
 rust_test(
     name = "conformance_test",
     srcs = ["conformance_test.rs"],
-    deps = [
-        "//crates/kubelet-core/src:lib",
-        "//crates/kubelet-adapters/src:lib",
-        "//crates/kubelet-app/src:lib",
-        "//crates/kubelet-ports/src:lib",
-        "//crates/kubelet-cri/src:lib",
-        "@crates//:tokio",
-        "@crates//:chrono",
-        "@crates//:tempfile",
-        "@crates//:serde",
-        "@crates//:serde_json",
-        "@crates//:kube",
-        "@crates//:k8s-openapi",
-    ],
+    edition = "2024",
 )

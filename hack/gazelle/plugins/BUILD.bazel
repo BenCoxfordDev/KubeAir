@@ -1,0 +1,54 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# Plugin library implementing the Gazelle language.Language interface for Rust.
+# Deps reference sub-packages exposed by the @gazelle Bazel module.
+go_library(
+    name = "plugins",
+    srcs = [
+        "cargo_resolver.go",
+        "gazelle_lang.go",
+        "parser.go",
+        "rust.go",
+    ],
+    importpath = "github.com/BenCoxfordDev/kubeair/hack/gazelle/plugins",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@gazelle//config",
+        "@gazelle//label",
+        "@gazelle//language",
+        "@gazelle//repo",
+        "@gazelle//resolve",
+        "@gazelle//rule",
+    ],
+)
+
+# Parser tests
+go_test(
+    name = "parser_test",
+    srcs = ["parser_test.go"],
+    embed = [":plugins"],
+)
+
+# Cargo resolver tests
+go_test(
+    name = "cargo_resolver_test",
+    srcs = ["cargo_resolver_test.go"],
+    embed = [":plugins"],
+)
+
+# Rust tests
+go_test(
+    name = "rust_test",
+    srcs = ["rust_test.go"],
+    embed = [":plugins"],
+)
+
+go_test(
+    name = "plugins_test",
+    srcs = [
+        "cargo_resolver_test.go",
+        "parser_test.go",
+        "rust_test.go",
+    ],
+    embed = [":plugins"],
+)

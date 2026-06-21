@@ -1,37 +1,44 @@
 load("@rules_rust//rust:defs.bzl", "rust_library")
 
+# gazelle:ignore
 # gazelle:exclude client
 # gazelle:exclude mock_server
 # gazelle:exclude types
 
 rust_library(
     name = "lib",
-    crate_name = "kubelet_cri",
     srcs = glob(["**/*.rs"]),
+    crate_name = "kubelet_cri",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         "//crates/kubelet-core/src:lib",
         "//crates/kubelet-ports/src:lib",
-        "@crates//:tonic",
-        "@crates//:prost",
-        "@crates//:prost-types",
-        "@crates//:tokio",
         "@crates//:anyhow",
-        "@crates//:thiserror",
-        "@crates//:tracing",
-        "@crates//:chrono",
-        "@crates//:serde",
-        "@crates//:serde_json",
-        "@crates//:url",
-        "@crates//:bytes",
         "@crates//:base64",
-        "@crates//:tower",
+        "@crates//:bytes",
+        "@crates//:chrono",
         "@crates//:hyper",
         "@crates//:hyper-util",
+        "@crates//:prost",
+        "@crates//:prost-types",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:thiserror",
+        "@crates//:tokio",
+        "@crates//:tonic",
+        "@crates//:tower",
+        "@crates//:tracing",
+        "@crates//:url",
         "@crates//:uuid",
-    ],
-    proc_macro_deps = [
-        "@crates//:async-trait",
     ],
 )
 
+rust_library(
+    name = "src",
+    srcs = ["lib.rs"],
+    edition = "2024",
+    deps = ["@crates//:tonic"],
+)

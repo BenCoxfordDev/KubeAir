@@ -5,4 +5,3 @@ proto_library(
     srcs = ["device_plugin.proto"],
     visibility = ["//crates/kubelet-adapters:__subpackages__"],
 )
-

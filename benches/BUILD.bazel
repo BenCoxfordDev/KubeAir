@@ -14,12 +14,12 @@ rust_binary(
     name = "pod_operations",
     srcs = ["pod_operations.rs"],
     deps = [
-        "//crates/kubelet-core/src:lib",
         "//crates/kubelet-adapters/src:lib",
+        "//crates/kubelet-core/src:lib",
         "//crates/kubelet-ports/src:lib",
+        "@crates//:chrono",
         "@crates//:criterion",
         "@crates//:tokio",
-        "@crates//:chrono",
     ],
 )
 
@@ -27,13 +27,13 @@ rust_binary(
     name = "server_throughput",
     srcs = ["server_throughput.rs"],
     deps = [
-        "//crates/kubelet-core/src:lib",
         "//crates/kubelet-adapters/src:lib",
         "//crates/kubelet-app/src:lib",
-        "@crates//:criterion",
-        "@crates//:tokio",
-        "@crates//:reqwest",
+        "//crates/kubelet-core/src:lib",
         "@crates//:axum",
         "@crates//:bytes",
+        "@crates//:criterion",
+        "@crates//:reqwest",
+        "@crates//:tokio",
     ],
 )

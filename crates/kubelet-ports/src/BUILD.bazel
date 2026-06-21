@@ -1,24 +1,30 @@
 load("@rules_rust//rust:defs.bzl", "rust_library")
 
+# gazelle:ignore
 # gazelle:exclude driven
 # gazelle:exclude driving
 
 rust_library(
     name = "lib",
-    crate_name = "kubelet_ports",
     srcs = glob(["**/*.rs"]),
+    crate_name = "kubelet_ports",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         "//crates/kubelet-core/src:lib",
         "@crates//:anyhow",
+        "@crates//:chrono",
         "@crates//:serde",
         "@crates//:serde_json",
         "@crates//:tokio",
-        "@crates//:chrono",
         "@crates//:tracing",
-    ],
-    proc_macro_deps = [
-        "@crates//:async-trait",
     ],
 )
 
+rust_library(
+    name = "src",
+    srcs = ["lib.rs"],
+    edition = "2024",
+)

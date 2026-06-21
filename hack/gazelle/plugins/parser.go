@@ -156,7 +156,7 @@ func (r *CrateDependencyResolver) ResolveCrate(crateName string) (string, bool) 
 	}
 
 	// Default: assume it's in @crates
-	return "@crates//:/" + normalized, true
+	return "@crates//:" + normalized, true
 }
 
 // AddCrate adds or updates a crate mapping.

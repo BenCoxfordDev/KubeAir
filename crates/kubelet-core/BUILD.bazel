@@ -4,4 +4,3 @@ alias(
     actual = "//crates/kubelet-core/src:lib",
     visibility = ["//visibility:public"],
 )
-

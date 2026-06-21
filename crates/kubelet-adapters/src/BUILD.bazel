@@ -1,5 +1,6 @@
 load("@rules_rust//rust:defs.bzl", "rust_library")
 
+# gazelle:ignore
 # gazelle:exclude active_deadline
 # gazelle:exclude admission
 # gazelle:exclude cert_rotator
@@ -46,40 +47,47 @@ load("@rules_rust//rust:defs.bzl", "rust_library")
 
 rust_library(
     name = "lib",
-    crate_name = "kubelet_adapters",
     srcs = glob(["**/*.rs"]),
+    crate_name = "kubelet_adapters",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         "//crates/kubelet-core/src:lib",
         "//crates/kubelet-ports/src:lib",
-        "@crates//:tokio",
         "@crates//:anyhow",
+        "@crates//:base64",
+        "@crates//:chrono",
+        "@crates//:dashmap",
+        "@crates//:futures",
+        "@crates//:hostname",
+        "@crates//:hyper-util",
+        "@crates//:k8s-openapi",
+        "@crates//:kube",
+        "@crates//:libc",
+        "@crates//:num_cpus",
+        "@crates//:parking_lot",
+        "@crates//:prost",
+        "@crates//:rcgen",
+        "@crates//:reqwest",
         "@crates//:serde",
         "@crates//:serde_json",
         "@crates//:serde_yaml",
-        "@crates//:tracing",
-        "@crates//:chrono",
-        "@crates//:reqwest",
-        "@crates//:dashmap",
-        "@crates//:parking_lot",
-        "@crates//:prost",
-        "@crates//:uuid",
         "@crates//:tempfile",
+        "@crates//:tokio",
         "@crates//:tokio-stream",
-        "@crates//:base64",
-        "@crates//:hostname",
-        "@crates//:num_cpus",
-        "@crates//:libc",
-        "@crates//:rcgen",
-        "@crates//:kube",
         "@crates//:tonic",
         "@crates//:tonic-health",
         "@crates//:tower",
-        "@crates//:k8s-openapi",
-        "@crates//:futures",
-        "@crates//:hyper-util",
+        "@crates//:tracing",
+        "@crates//:uuid",
     ],
-    proc_macro_deps = [
-        "@crates//:async-trait",
-    ],
+)
+
+rust_library(
+    name = "src",
+    srcs = ["lib.rs"],
+    edition = "2024",
+    deps = ["@crates//:tonic"],
 )
