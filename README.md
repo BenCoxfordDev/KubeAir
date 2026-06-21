@@ -84,13 +84,13 @@ just build arm64
 ### Run
 
 ```bash
-./target/release/kubelet \
+./bazel-bin/src/main \
   --node-name <node-name> \
   --kubeconfig /etc/kubernetes/kubelet.conf \
   --container-runtime-endpoint unix:///run/containerd/containerd.sock
 ```
 
-Run `./target/release/kubelet --help` for all flags.
+Run `./bazel-bin/src/main --help` for all flags.
 
 ### Test
 

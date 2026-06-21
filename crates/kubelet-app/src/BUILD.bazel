@@ -1,5 +1,10 @@
 load("@rules_rust//rust:defs.bzl", "rust_library")
 
+# gazelle:exclude exec_handler
+# gazelle:exclude pod_worker
+# gazelle:exclude runtime_manager
+# gazelle:exclude streaming
+
 rust_library(
     name = "lib",
     crate_name = "kubelet_app",

@@ -33,7 +33,7 @@ smoke:
   bazel test //tests/smoke:smoke_test
 
 fmt:
-  bazel run @rules_rust//:rustfmt
+  bazel run --@rules_rust//rust/settings:rustfmt.toml=//:rustfmt.toml @rules_rust//:rustfmt
 
 bench:
   bazel run //benches:pod_operations

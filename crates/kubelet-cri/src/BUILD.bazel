@@ -1,5 +1,9 @@
 load("@rules_rust//rust:defs.bzl", "rust_library")
 
+# gazelle:exclude client
+# gazelle:exclude mock_server
+# gazelle:exclude types
+
 rust_library(
     name = "lib",
     crate_name = "kubelet_cri",

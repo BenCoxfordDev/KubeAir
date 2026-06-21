@@ -1,5 +1,8 @@
 load("@rules_rust//rust:defs.bzl", "rust_library")
 
+# gazelle:exclude driven
+# gazelle:exclude driving
+
 rust_library(
     name = "lib",
     crate_name = "kubelet_ports",

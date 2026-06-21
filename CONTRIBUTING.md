@@ -71,8 +71,8 @@ just smoke
 - **No panics in production paths** — use `Result` and propagate errors. Reserve `expect` for invariants that are genuinely impossible to violate.
 - **Keep footprint small** — KubeAir's key value proposition is low memory and CPU usage. Avoid unnecessary allocations; prefer `Arc` sharing over cloning large structures.
 - **No unsafe unless necessary** — any `unsafe` block requires a comment explaining the invariant being upheld.
-- **Clippy clean** — `just verify` runs `cargo clippy -- -D warnings`. Zero warnings required.
-- **Formatted** — `just fmt` runs `cargo fmt`. All code must be formatted before merging.
+- **Clippy clean** — `just verify`. Zero warnings required.
+- **Formatted** — `just fmt`. All code must be formatted before merging.
 
 ## Architecture
 

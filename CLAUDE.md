@@ -84,17 +84,15 @@ just fmt
 ## Benchmarks
 
 ```bash
-# run individual benchmark tests
-bazel run benches:pod_operations
-bazel run benches:pod_operations 
-bazel run benches:pod_operations 
+# run benchmark tests
+just benchmark 
 ```
 
 HTML reports are written to `target/criterion/`.
 
 ## Architecture Overview
 
-KubeAir uses a **hexagonal (ports and adapters)** architecture. Dependencies flow inward — the domain layer has no I/O.
+KubeAir uses a **(ports and adapters)** architecture. Dependencies flow inward — the domain layer has no I/O.
 
 ```
 src/main.rs
