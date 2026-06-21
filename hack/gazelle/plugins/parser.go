@@ -12,19 +12,24 @@ type ImportParser struct {
 	braceUse    *regexp.Regexp
 	aliasedUse  *regexp.Regexp
 	wildcardUse *regexp.Regexp
+	// Pattern to match bare crate path usages (e.g. tokio::runtime::Builder)
+	barePath *regexp.Regexp
 }
 
 // NewImportParser creates a new Rust import parser.
 func NewImportParser() *ImportParser {
 	return &ImportParser{
 		// Match: use foo::bar;
-		simpleUse: regexp.MustCompile(`use\s+([a-z_][a-z0-9_]*(?:::[a-z_][a-z0-9_:]*)?)\s*;`),
+		simpleUse: regexp.MustCompile(`(?m)^\s*use\s+([a-z_][a-z0-9_]*(?:::[a-zA-Z_][a-zA-Z0-9_:]*)?)\s*;`),
 		// Match: use foo::{ bar, baz };
-		braceUse: regexp.MustCompile(`use\s+([a-z_][a-z0-9_]*)\s*::\s*\{([^}]+)\}`),
+		braceUse: regexp.MustCompile(`(?m)^\s*use\s+([a-z_][a-z0-9_]*)\s*::\s*\{`),
 		// Match: use foo as bar;
-		aliasedUse: regexp.MustCompile(`use\s+([a-z_][a-z0-9_]*)\s+as\s+[a-z_][a-z0-9_]*`),
+		aliasedUse: regexp.MustCompile(`(?m)^\s*use\s+([a-z_][a-z0-9_]*)\s+as\s+[a-zA-Z_]`),
 		// Match: use foo::*;
-		wildcardUse: regexp.MustCompile(`use\s+([a-z_][a-z0-9_]*(?:::[a-z0-9_:]+)?)\s*::\s*\*`),
+		wildcardUse: regexp.MustCompile(`(?m)^\s*use\s+([a-z_][a-z0-9_]*(?:::[a-zA-Z0-9_:]+)?)\s*::\s*\*`),
+		// Require the identifier to NOT be preceded by :: (which would make it
+		// a submodule of an already-matched path, not a root crate name).
+		barePath: regexp.MustCompile(`(?:[^a-zA-Z0-9_:]|^)([a-z][a-z0-9_]*)::(?:[A-Z]|[a-z][a-z0-9_]*::)`),
 	}
 }
 
@@ -70,6 +75,15 @@ func (p *ImportParser) ExtractCrateNames(source string) map[string]bool {
 				crates[crate] = true
 			}
 		}
+
+		// Bare path usages: tokio::runtime, anyhow::Result, etc.
+		// Use a non-word-or-colon prefix to avoid matching submodule names
+		// inside a longer path (e.g. `manager` in `kubelet_app::manager::X`).
+		for _, m := range p.barePath.FindAllStringSubmatch(line, -1) {
+			if isValidCrateName(m[1]) {
+				crates[m[1]] = true
+			}
+		}
 	}
 
 	return crates
@@ -100,14 +114,16 @@ func (p *ImportParser) extractRootCrate(path string) string {
 
 // isValidCrateName checks if a name is a valid crate import (not std/self/super/crate).
 func isValidCrateName(name string) bool {
-	return name != "" &&
-		name != "crate" &&
-		name != "self" &&
-		name != "super" &&
-		name != "std" &&
-		name != "alloc" &&
-		name != "core" &&
-		name != "proc_macro"
+	switch name {
+	case "", "crate", "self", "super", "std", "alloc", "core", "proc_macro",
+		// Common submodule names that appear as bare paths but are not root crates
+		"fmt", "io", "fs", "net", "sync", "ops", "str", "mem", "ptr",
+		"time", "hash", "iter", "num", "env", "path", "convert", "collections",
+		"result", "option", "error", "any", "clone", "cmp", "marker", "default",
+		"borrow", "cell", "rc", "arc", "pin", "future", "task", "async":
+		return false
+	}
+	return true
 }
 
 // CrateDependencyResolver resolves crate names to Bazel labels.
@@ -166,5 +182,21 @@ func (r *CrateDependencyResolver) AddCrate(crateName, label string) {
 
 // defaultCrateMap provides the default mapping for KubeAir dependencies.
 func defaultCrateMap() map[string]string {
-	return map[string]string{}
+	return map[string]string{
+		// Local workspace crates
+		"kubelet_core":     "//crates/kubelet-core/src:lib",
+		"kubelet_ports":    "//crates/kubelet-ports/src:lib",
+		"kubelet_adapters": "//crates/kubelet-adapters/src:lib",
+		"kubelet_app":      "//crates/kubelet-app/src:lib",
+		"kubelet_cri":      "//crates/kubelet-cri/src:lib",
+		// External crates whose names use underscores (not hyphens) in Bazel labels
+		"serde_json":        "@crates//:serde_json",
+		"serde_yaml":        "@crates//:serde_yaml",
+		"serde_value":       "@crates//:serde_value",
+		"num_cpus":          "@crates//:num_cpus",
+		"parking_lot":       "@crates//:parking_lot",
+		"once_cell":         "@crates//:once_cell",
+		"prost_types":       "@crates//:prost-types",
+		"tikv_jemallocator": "@crates//:tikv-jemallocator",
+	}
 }

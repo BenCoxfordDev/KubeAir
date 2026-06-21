@@ -36,11 +36,6 @@ func (a *RustAnalyzer) AnalyzeDirectory(dir string) (map[string]string, error) {
 		if err != nil {
 			return nil
 		}
-		// Skip subdirectories — they are separate Bazel packages and
-		// Gazelle will invoke GenerateRules on them independently.
-		if info.IsDir() && path != dir {
-			return filepath.SkipDir
-		}
 		if !info.IsDir() && strings.HasSuffix(path, ".rs") {
 			content, err := os.ReadFile(path)
 			if err != nil {

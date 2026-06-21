@@ -6,7 +6,12 @@ rust_binary(
     edition = "2024",
     visibility = ["//visibility:public"],
     deps = [
+        "//crates/kubelet-app/src:lib",
+        "@crates//:anyhow",
+        "@crates//:clap",
         "@crates//:rustls",
+        "@crates//:tikv-jemallocator",
+        "@crates//:tokio",
         "@crates//:tracing",
         "@crates//:tracing-subscriber",
     ],

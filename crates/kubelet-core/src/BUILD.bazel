@@ -35,7 +35,24 @@ rust_library(
 
 rust_library(
     name = "src",
-    srcs = ["lib.rs"],
+    srcs = glob(["**/*.rs"]),
     edition = "2024",
-    deps = ["@crates//:serde"],
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+    deps = [
+        "@crates//:anyhow",
+        "@crates//:chrono",
+        "@crates//:dashmap",
+        "@crates//:hostname",
+        "@crates//:k8s-openapi",
+        "@crates//:parking_lot",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:serde_yaml",
+        "@crates//:thiserror",
+        "@crates//:tokio",
+        "@crates//:tracing",
+        "@crates//:uuid",
+    ],
 )

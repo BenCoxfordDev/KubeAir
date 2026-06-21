@@ -25,6 +25,18 @@ rust_library(
 
 rust_library(
     name = "src",
-    srcs = ["lib.rs"],
+    srcs = glob(["**/*.rs"]),
     edition = "2024",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+    deps = [
+        "//crates/kubelet-core/src:lib",
+        "@crates//:anyhow",
+        "@crates//:chrono",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+        "@crates//:tracing",
+    ],
 )

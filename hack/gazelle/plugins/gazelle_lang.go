@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"flag"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -85,7 +86,11 @@ func (l *Language) GenerateRules(args language.GenerateArgs) language.GenerateRe
 
 	if src := detectSrc(args.Dir, args.RegularFiles, "lib.rs", "src/lib.rs"); src != "" {
 		r := rule.NewRule("rust_library", pkgName)
-		r.SetAttr("srcs", []string{src})
+		if hasSubdirs(args.Dir) {
+			r.SetAttr("srcs", rule.GlobValue{Patterns: []string{"**/*.rs"}})
+		} else {
+			r.SetAttr("srcs", []string{src})
+		}
 		r.SetAttr("edition", rustEdition)
 		if len(deps) > 0 {
 			r.SetAttr("deps", deps)
@@ -155,6 +160,19 @@ func (l *Language) Configure(c *config.Config, rel string, f *rule.File)        
 func hasRustFiles(files []string) bool {
 	for _, f := range files {
 		if strings.HasSuffix(f, ".rs") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSubdirs(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
 			return true
 		}
 	}
