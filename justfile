@@ -44,6 +44,9 @@ gazelle:
   bazel run //:gazelle
 
 verify:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  
   bazel build //...
   bazel run //:cargo_deny
 

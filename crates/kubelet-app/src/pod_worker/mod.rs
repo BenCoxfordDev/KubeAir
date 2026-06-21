@@ -4697,12 +4697,11 @@ fn node_allocatable_memory_bytes() -> i64 {
     {
         if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
             for line in content.lines() {
-                if line.starts_with("MemTotal:") {
-                    if let Some(kb_str) = line.split_whitespace().nth(1) {
-                        if let Ok(kb_val) = kb_str.parse::<i64>() {
-                            return kb_val * 1024;
-                        }
-                    }
+                if line.starts_with("MemTotal:")
+                    && let Some(kb_str) = line.split_whitespace().nth(1)
+                    && let Ok(kb_val) = kb_str.parse::<i64>()
+                {
+                    return kb_val * 1024;
                 }
             }
         }
