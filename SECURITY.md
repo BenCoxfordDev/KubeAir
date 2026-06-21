@@ -13,7 +13,7 @@ KubeAir supports the two most recent release lines. Security fixes are backporte
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/bencoxford/kubeair/security/advisories/new). This keeps the details confidential until a fix is ready.
+Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/BenCoxfordDev/kubeair/security/advisories/new). This keeps the details confidential until a fix is ready.
 
 When reporting, please include:
 

@@ -1,0 +1,67 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+# gazelle:ignore
+# gazelle:exclude config
+# gazelle:exclude container
+# gazelle:exclude lease
+# gazelle:exclude node
+# gazelle:exclude pod
+# gazelle:exclude qos
+
+rust_library(
+    name = "lib",
+    srcs = glob(["**/*.rs"]),
+    crate_name = "kubelet_core",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:anyhow",
+        "@crates//:chrono",
+        "@crates//:dashmap",
+        "@crates//:hostname",
+        "@crates//:k8s-openapi",
+        "@crates//:parking_lot",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:serde_yaml",
+        "@crates//:thiserror",
+        "@crates//:tokio",
+        "@crates//:tracing",
+        "@crates//:uuid",
+    ],
+)
+
+rust_library(
+    name = "src",
+    srcs = glob(["**/*.rs"]),
+    edition = "2024",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+    deps = [
+        "@crates//:anyhow",
+        "@crates//:chrono",
+        "@crates//:dashmap",
+        "@crates//:hostname",
+        "@crates//:k8s-openapi",
+        "@crates//:parking_lot",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:serde_yaml",
+        "@crates//:thiserror",
+        "@crates//:tokio",
+        "@crates//:tracing",
+        "@crates//:uuid",
+    ],
+)
+
+rust_test(
+    name = "core_test",
+    crate = ":lib",
+    edition = "2024",
+    deps = [
+        "@crates//:rstest",
+    ],
+)

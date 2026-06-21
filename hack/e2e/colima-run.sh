@@ -190,6 +190,15 @@ sudo apt-get install -y -qq \
   curl \
   git
 
+# Install Bazelisk (automatic Bazel version manager)
+if ! command -v bazel &>/dev/null; then
+  echo "Installing Bazelisk..."
+  curl --proto '=https' --tlsv1.2 -sSfL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+    -o /tmp/bazel
+  chmod +x /tmp/bazel
+  sudo mv /tmp/bazel /usr/local/bin/bazel
+fi
+
 # Install rustup / cargo if not present (Colima images don't ship Rust)
 if ! command -v cargo &>/dev/null; then
   echo "Installing Rust via rustup..."
@@ -204,13 +213,14 @@ source "$HOME/.cargo/env" 2>/dev/null \
 
 rustc --version
 cargo --version
+bazel version
 
 cd "$VM_REPO_PATH"
-cargo build --release --bin kubelet --locked --jobs "$CARGO_BUILD_JOBS"
+bazel build //src:kubelet -j "$CARGO_BUILD_JOBS"
 BUILD
 fi
 
-VM_KUBELET_BIN="$VM_REPO_PATH/target/release/kubelet"
+VM_KUBELET_BIN="$VM_REPO_PATH/bazel-bin/src/kubelet"
 log "Kubelet built at $VM_KUBELET_BIN (inside VM)"
 
 # ── Step 6: Run setup-node.sh inside VM ───────────────────────────────────────

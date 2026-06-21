@@ -133,14 +133,14 @@ impl ImagePuller {
         // Check backoff.
         {
             let backoffs = self.backoffs.lock().await;
-            if let Some(bo) = backoffs.get(image) {
-                if !bo.should_retry() {
-                    let wait = bo.next_retry.duration_since(Instant::now());
-                    return Err(KubeletError::Runtime(format!(
-                        "image '{}' is in pull backoff (retry in {:?}, failures: {})",
-                        image, wait, bo.failure_count
-                    )));
-                }
+            if let Some(bo) = backoffs.get(image)
+                && !bo.should_retry()
+            {
+                let wait = bo.next_retry.duration_since(Instant::now());
+                return Err(KubeletError::Runtime(format!(
+                    "image '{}' is in pull backoff (retry in {:?}, failures: {})",
+                    image, wait, bo.failure_count
+                )));
             }
         }
 

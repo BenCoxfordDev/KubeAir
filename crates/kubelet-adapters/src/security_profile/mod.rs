@@ -211,13 +211,13 @@ impl AppArmorEnforcer {
                 }
             }
         }
-        if let AppArmorProfile::Localhost(name) = profile {
-            if !Self::profile_is_loaded(name) {
-                return Err(KubeletError::Security(format!(
-                    "AppArmor profile '{}' is not loaded on this node",
-                    name
-                )));
-            }
+        if let AppArmorProfile::Localhost(name) = profile
+            && !Self::profile_is_loaded(name)
+        {
+            return Err(KubeletError::Security(format!(
+                "AppArmor profile '{}' is not loaded on this node",
+                name
+            )));
         }
         Ok(())
     }
@@ -456,9 +456,11 @@ mod tests {
     fn test_seccomp_enforcer_accepts_runtime_default() {
         let dir = TempDir::new().unwrap();
         let enforcer = SeccompEnforcer::new(dir.path());
-        assert!(enforcer
-            .validate(&SeccompProfile::runtime_default())
-            .is_ok());
+        assert!(
+            enforcer
+                .validate(&SeccompProfile::runtime_default())
+                .is_ok()
+        );
     }
 
     #[test]

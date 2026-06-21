@@ -69,8 +69,8 @@ async fn serve_plain(addr: SocketAddr, router: Router) -> anyhow::Result<()> {
 
 async fn serve_with_rustls(addr: SocketAddr, router: Router, cfg: TlsConfig) -> anyhow::Result<()> {
     let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
-    use tokio_rustls::rustls;
     use tokio_rustls::TlsAcceptor;
+    use tokio_rustls::rustls;
 
     // Load certificate chain.
     let cert_pem = std::fs::read(&cfg.cert_pem_path)
@@ -212,7 +212,7 @@ pub struct ClientCertCN(pub String);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::{build_router, ServerState};
+    use crate::server::{ServerState, build_router};
     use kubelet_adapters::mock_runtime::MockRuntime;
     use kubelet_core::pod::manager::PodManager;
     use kubelet_ports::driven::container_runtime::ContainerRuntime;

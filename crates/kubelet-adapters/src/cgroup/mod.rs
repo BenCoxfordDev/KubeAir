@@ -317,21 +317,27 @@ mod tests {
     #[test]
     fn test_qos_slice_names() {
         let paths = CgroupPath::new("/sys/fs/cgroup");
-        assert!(paths
-            .qos_slice(&QosClass::Guaranteed)
-            .to_str()
-            .unwrap()
-            .contains("guaranteed"));
-        assert!(paths
-            .qos_slice(&QosClass::Burstable)
-            .to_str()
-            .unwrap()
-            .contains("burstable"));
-        assert!(paths
-            .qos_slice(&QosClass::BestEffort)
-            .to_str()
-            .unwrap()
-            .contains("besteffort"));
+        assert!(
+            paths
+                .qos_slice(&QosClass::Guaranteed)
+                .to_str()
+                .unwrap()
+                .contains("guaranteed")
+        );
+        assert!(
+            paths
+                .qos_slice(&QosClass::Burstable)
+                .to_str()
+                .unwrap()
+                .contains("burstable")
+        );
+        assert!(
+            paths
+                .qos_slice(&QosClass::BestEffort)
+                .to_str()
+                .unwrap()
+                .contains("besteffort")
+        );
     }
 
     #[test]
@@ -348,10 +354,12 @@ mod tests {
         let paths = CgroupPath::new("/sys/fs/cgroup");
         let uid = PodUID::new("test-uid");
         let scope = paths.container_scope(&QosClass::Burstable, &uid, "deadbeef123");
-        assert!(scope
-            .to_str()
-            .unwrap()
-            .contains("cri-containerd-deadbeef123"));
+        assert!(
+            scope
+                .to_str()
+                .unwrap()
+                .contains("cri-containerd-deadbeef123")
+        );
     }
 
     #[test]

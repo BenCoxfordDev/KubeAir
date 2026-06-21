@@ -1,0 +1,17 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+
+# gazelle:ignore
+rust_test(
+    name = "smoke_test",
+    srcs = ["smoke_test.rs"],
+    edition = "2024",
+    deps = [
+        "//crates/kubelet-adapters/src:lib",
+        "//crates/kubelet-app/src:lib",
+        "//crates/kubelet-core/src:lib",
+        "@crates//:axum",
+        "@crates//:reqwest",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+    ],
+)

@@ -199,15 +199,19 @@ mod tests {
 
         runtime.start_container(&cid).await.unwrap();
         let started = pleg.relist().await.unwrap();
-        assert!(started
-            .iter()
-            .any(|e| e.event_type == PlegEventType::ContainerStarted));
+        assert!(
+            started
+                .iter()
+                .any(|e| e.event_type == PlegEventType::ContainerStarted)
+        );
 
         runtime.remove_container(&cid).await.unwrap();
         let removed = pleg.relist().await.unwrap();
-        assert!(removed
-            .iter()
-            .any(|e| e.event_type == PlegEventType::ContainerRemoved));
+        assert!(
+            removed
+                .iter()
+                .any(|e| e.event_type == PlegEventType::ContainerRemoved)
+        );
         assert!(pleg.is_healthy(Duration::from_secs(5)));
     }
 }

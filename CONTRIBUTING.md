@@ -25,16 +25,13 @@ sudo apt-get install protobuf-compiler
 
 ```bash
 # Build
-cargo build
+just build
 
 # Run all tests
 just test
 
-# Lint (must pass before submitting)
-just lint
-
-# Auto-fix lint warnings
-just auto-fix
+# Verify (must pass before submitting)
+just verify
 
 # Format
 just fmt
@@ -45,7 +42,7 @@ just fmt
 1. **Open an issue first** for non-trivial changes. Discuss the approach before investing time in an implementation.
 2. **Fork and branch** — create a feature branch from `main`.
 3. **Write tests** — all changes must include unit tests. Bug fixes should include a regression test. See [Testing](#testing) below.
-4. **Ensure CI passes** — `just lint` and `just test` must pass locally before pushing.
+4. **Ensure CI passes** — `just verify` and `just test` must pass locally before pushing.
 5. **Open a pull request** against `main`. Keep PRs focused; one logical change per PR.
 6. **PR description** — explain *what* changed and *why*. This feeds into auto-generated release notes. Commits are squashed.
 
@@ -60,10 +57,12 @@ KubeAir has four test layers:
 | Conformance tests | `tests/conformance/`                   | Kubernetes spec compliance                                       |
 | E2E tests         | `tests/e2e/` + `hack/e2e/`           | Full cluster behaviour (run via `bash hack/e2e/colima-run.sh`) |
 
-Run the conformance suite before submitting any change that touches pod lifecycle, container state, or the kubelet API:
+Run the conformance/smoke suite before submitting any change that touches pod lifecycle, container state, or the kubelet API:
 
 ```bash
-just conformance-smoke
+just conformance
+
+just smoke
 ```
 
 ## Code Standards
@@ -72,8 +71,8 @@ just conformance-smoke
 - **No panics in production paths** — use `Result` and propagate errors. Reserve `expect` for invariants that are genuinely impossible to violate.
 - **Keep footprint small** — KubeAir's key value proposition is low memory and CPU usage. Avoid unnecessary allocations; prefer `Arc` sharing over cloning large structures.
 - **No unsafe unless necessary** — any `unsafe` block requires a comment explaining the invariant being upheld.
-- **Clippy clean** — `just lint` runs `cargo clippy -- -D warnings`. Zero warnings required.
-- **Formatted** — `just fmt` runs `cargo fmt`. All code must be formatted before merging.
+- **Clippy clean** — `just verify`. Zero warnings required.
+- **Formatted** — `just fmt`. All code must be formatted before merging.
 
 ## Architecture
 
@@ -100,7 +99,7 @@ Use the conventional commits format:
 [optional body]
 ```
 
-Types: `fix`, `feat`, `perf`, `test`, `docs`, `refactor`, `chore`.
+Types: `fix`, `feat`, `perf`, `test`, `docs`, `refactor`, `chore`, `release`.
 
 Examples:
 

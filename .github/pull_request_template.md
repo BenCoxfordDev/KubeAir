@@ -14,6 +14,7 @@ Fixes #
 - [ ] Performance improvement
 - [ ] Refactor (no behaviour change)
 - [ ] Documentation / comments only
+- [ ] Release only
 - [ ] Test only
 
 ## Changes
@@ -27,16 +28,16 @@ Fixes #
 <!-- Describe how you tested this change. -->
 
 - [ ] Unit tests added / updated
-- [ ] Integration tests added / updated (`cargo test --test integration`)
-- [ ] Conformance tests pass (`just conformance-smoke`)
-- [ ] Smoke tests pass (`cargo test --test smoke`)
+- [ ] Integration tests added / updated (`just test`)
+- [ ] Conformance tests pass (`just conformance`)
+- [ ] Smoke tests pass (`just smoke`)
 - [ ] Manually tested against a running cluster
 
 <!-- For bug fixes: describe the regression test added. -->
 
 ## Checklist
 
-- [ ] `just lint` passes (clippy + fmt)
+- [ ] `just verify` passes (clippy + fmt)
 - [ ] `just test` passes
 - [ ] No new `unwrap`/`expect` in production paths without a justifying comment
 - [ ] No new `unsafe` blocks without a safety comment

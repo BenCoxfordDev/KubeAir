@@ -29,8 +29,8 @@ use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
 use k8s_openapi::api::core::v1::{Container, Pod, PodSpec, PodTemplateSpec, Toleration};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::{
-    api::{Api, DeleteParams, PostParams},
     Client, Config,
+    api::{Api, DeleteParams, PostParams},
 };
 use std::collections::BTreeMap;
 use std::process::Command;

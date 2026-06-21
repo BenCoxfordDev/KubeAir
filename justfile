@@ -1,16 +1,21 @@
+
+alias b := build
+alias g := gazelle
+alias t := test
+
 build arch="native":
   #!/usr/bin/env bash
   set -euo pipefail
 
   case "{{arch}}" in
     amd64|x86_64)
-      cargo zigbuild --release --target x86_64-unknown-linux-gnu
+      bazel build //... --platforms=@rules_rust//rust/platform:linux_x86_64
       ;;
     arm64|aarch64)
-      cargo zigbuild --release --target aarch64-unknown-linux-gnu
+      bazel build //... --platforms=@rules_rust//rust/platform:linux_arm64
       ;;
     native)
-      cargo build --release
+      bazel build //...
       ;;
     *)
       echo "Unsupported arch: {{arch}}. Use one of: native, amd64, arm64"
@@ -18,28 +23,32 @@ build arch="native":
       ;;
   esac
 
-test:
-  cargo test --workspace --all-targets --all-features
-  cargo test -p kubelet --test conformance -- --nocapture
+test path="//...":
+  bazel test {{path}}
 
-conformance-smoke:
-  cargo test -p kubelet --test conformance -- --nocapture
+conformance:
+  bazel test //tests/conformance:conformance_test
 
-real-runtime-smoke:
-  cargo test -p kubelet-cri test_health_check -- --ignored --nocapture
-  cargo test -p kubelet-adapters test_cni_from_real_ci_dirs_detects_config -- --ignored --nocapture
-  cargo test -p kubelet --test conformance -- --nocapture
-
-lint:
-  cargo clippy --all-targets -- -D warnings
-  cargo fmt --all -- --check
-  cargo deny check
-
-auto-fix:
-  cargo clippy --fix --workspace --all-targets --all-features --allow-dirty --allow-staged
-
-generate-lockfile:
-  cargo generate-lockfile
+smoke:
+  bazel test //tests/smoke:smoke_test
 
 fmt:
-  cargo fmt --all
+  bazel run --@rules_rust//rust/settings:rustfmt.toml=//:rustfmt.toml @rules_rust//:rustfmt
+
+bench:
+  bazel run //benches:pod_operations
+  bazel run //benches:server_throughput
+  bazel run //benches:memory_profile
+
+gazelle:
+  bazel run //:gazelle
+
+verify:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  
+  bazel build //...
+  bazel run //:cargo_deny
+
+generate-lockfile:
+  CARGO_BAZEL_REPIN=1 bazel fetch //...

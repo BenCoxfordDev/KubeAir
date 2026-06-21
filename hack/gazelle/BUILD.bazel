@@ -1,0 +1,9 @@
+load("@gazelle//:def.bzl", "gazelle_binary")
+
+# Custom Gazelle binary with the Rust language plugin.
+# gazelle_binary links our plugin with the Gazelle runtime automatically.
+gazelle_binary(
+    name = "gazelle_bin",
+    languages = ["//hack/gazelle/plugins:plugins"],
+    visibility = ["//visibility:public"],
+)

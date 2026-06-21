@@ -1,0 +1,52 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+# gazelle:ignore
+# gazelle:exclude driven
+# gazelle:exclude driving
+
+rust_library(
+    name = "lib",
+    srcs = glob(["**/*.rs"]),
+    crate_name = "kubelet_ports",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/kubelet-core/src:lib",
+        "@crates//:anyhow",
+        "@crates//:chrono",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+        "@crates//:tracing",
+    ],
+)
+
+rust_library(
+    name = "src",
+    srcs = glob(["**/*.rs"]),
+    edition = "2024",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+    deps = [
+        "//crates/kubelet-core/src:lib",
+        "@crates//:anyhow",
+        "@crates//:chrono",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+        "@crates//:tracing",
+    ],
+)
+
+rust_test(
+    name = "ports_test",
+    crate = ":lib",
+    edition = "2024",
+    deps = [
+        "@crates//:mockall",
+        "@crates//:tokio",
+    ],
+)

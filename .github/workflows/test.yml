@@ -44,89 +44,52 @@ jobs:
     needs: [check-changes]
     if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
-    env:
-      CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Rust toolchain is preinstalled
-        shell: bash
-        run: |
-          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
-          command -v rustc
-          command -v cargo
-          rustc --version
-          cargo --version
-
-      - name: Install protoc
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-          protoc --version
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.9.1
         with:
-          shared-key: "rust-test"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          bazelisk-cache: true
+          disk-cache: kubeair
+          repository-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up just
+        uses: extractions/setup-just@v2
 
       - name: Run all test suites
-        shell: bash
-        run: |
-          cargo test --workspace --lib --bins --all-features --locked
-          cargo test --test integration --all-features --locked
-          cargo test --test integration_runtime_network_storage --all-features --locked
-          cargo test --test integration_resource_orchestration --all-features --locked
-          cargo test --test conformance --all-features --locked
-          cargo test --test smoke --all-features --locked
+        run: just test
 
   coverage:
     needs: test
     runs-on: ubuntu-24.04
-    env:
-      CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Rust toolchain is preinstalled
-        shell: bash
-        run: |
-          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
-          command -v rustc
-          command -v cargo
-          command -v rustup
-          rustc --version
-          cargo --version
-          rustup --version
-
-      - name: Install protoc
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-          protoc --version
-
-      - name: Install coverage tooling
-        shell: bash
-        run: |
-          rustup component add llvm-tools-preview
-          cargo install cargo-llvm-cov --locked
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.9.1
         with:
-          shared-key: "rust-coverage"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          bazelisk-cache: true
+          disk-cache: kubeair
+          repository-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up just
+        uses: extractions/setup-just@v2
+
+      - name: Install lcov
+        run: sudo apt-get install -y lcov
 
       - name: Generate coverage report
         shell: bash
         run: |
+          bazel coverage //... --combined_report=lcov
           mkdir -p coverage
-          cargo llvm-cov --workspace --all-features --locked --lcov --output-path coverage/lcov.info
-          cargo llvm-cov report --summary-only > coverage/summary.txt
+          cp bazel-out/_coverage/_coverage_report.dat coverage/lcov.info
+          lcov --summary coverage/lcov.info > coverage/summary.txt 2>&1 || true
 
       - name: Publish coverage summary
         shell: bash

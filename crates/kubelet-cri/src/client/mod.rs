@@ -38,13 +38,12 @@ use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
 use tracing::{debug, info};
 
-// Include tonic-generated code.
+// Include pre-generated tonic code.
 pub mod cri {
-    tonic::include_proto!("runtime.v1");
+    include!("../proto_generated.rs");
 }
 
 use cri::{
-    image_service_client::ImageServiceClient, runtime_service_client::RuntimeServiceClient,
     AttachRequest, AuthConfig, Capability, ContainerConfig, ContainerMetadata,
     ContainerStatsRequest, ContainerStatusRequest, CreateContainerRequest, Device as CriDevice,
     DnsConfig, ExecSyncRequest, ImageSpec, ImageStatusRequest, Int64Value, KeyValue,
@@ -55,6 +54,7 @@ use cri::{
     RemoveContainerRequest, RemoveImageRequest, RemovePodSandboxRequest, RunPodSandboxRequest,
     SecurityProfile, SecurityProfileType, StartContainerRequest, StopContainerRequest,
     StopPodSandboxRequest, UpdateContainerResourcesRequest, VersionRequest,
+    image_service_client::ImageServiceClient, runtime_service_client::RuntimeServiceClient,
 };
 
 // -- Client --------------------------------------------------------------------
@@ -852,17 +852,18 @@ impl ContainerRuntime for ContainerdClient {
             .into_inner();
 
         // Log verbose info for failed containers
-        if let Some(ref status) = resp.status {
-            if status.state == 2 && status.exit_code != 0 {
-                info!(
-                    container_id = %container_id.0,
-                    exit_code = status.exit_code,
-                    reason = %status.reason,
-                    message = %status.message,
-                    verbose_info = ?resp.info,
-                    "Container failed"
-                );
-            }
+        if let Some(ref status) = resp.status
+            && status.state == 2
+            && status.exit_code != 0
+        {
+            info!(
+                container_id = %container_id.0,
+                exit_code = status.exit_code,
+                reason = %status.reason,
+                message = %status.message,
+                verbose_info = ?resp.info,
+                "Container failed"
+            );
         }
 
         Ok(resp.status.map(|s| RuntimeContainer {

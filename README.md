@@ -2,9 +2,9 @@
 <img src="docs/assets/kubeair-logo.svg" width="50%">
 </p>
 
-[![Build](https://github.com/BenCoxfordDev/kubeair/actions/workflows/build.yml/badge.svg)](https://github.com/bencoxford/kubeair/actions/workflows/build.yml)
-[![Tests](https://github.com/BenCoxfordDev/kubeair/actions/workflows/test.yml/badge.svg)](https://github.com/bencoxford/kubeair/actions/workflows/test.yml)
-[![E2E Tests](https://github.com/BenCoxfordDev/kubeair/actions/workflows/kubeadm-e2e.yml/badge.svg)](https://github.com/bencoxford/kubeair/actions/workflows/kubeadm-e2e.yml)
+[![Build](https://github.com/BenCoxfordDev/kubeair/actions/workflows/build.yml/badge.svg)](https://github.com/BenCoxfordDev/kubeair/actions/workflows/build.yml)
+[![Tests](https://github.com/BenCoxfordDev/kubeair/actions/workflows/test.yml/badge.svg)](https://github.com/BenCoxfordDev/kubeair/actions/workflows/test.yml)
+[![E2E Tests](https://github.com/BenCoxfordDev/kubeair/actions/workflows/kubeadm-e2e.yml/badge.svg)](https://github.com/BenCoxfordDev/kubeair/actions/workflows/kubeadm-e2e.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 A like-for-like functional Rust reimplementation of the Kubernetes [kubelet](https://github.com/kubernetes/kubernetes/blob/master/cmd/kubelet/kubelet.go), tested against a live kubeadm cluster with ~888 automated tests across unit, integration, conformance, and e2e layers. In the future we may visit other componenets like the kube-apiserver.
@@ -23,7 +23,7 @@ Measured on a live cluster with 87 pods running:
 | ------------- | ----------------------- | ----------------------- | ---------------- |
 | 87 (measured) | 43.2 MB (peak: 53.4 MB) | 207.5 MB (peak: 224 MB) | ~80% less memory |
 
-Projected at scale:
+Future test, projected at scale:
 
 | Pods | KubeAir (est.) | Go kubelet (est.) |
 | ---- | -------------- | ----------------- |
@@ -71,11 +71,8 @@ sudo apt-get install protobuf-compiler
 ### Build
 
 ```bash
-# Debug build (native architecture)
-cargo build
-
-# Release build (native)
-cargo build --release
+# native build to local machine
+just build
 
 # Cross-compile for amd64 Linux (requires cargo-zigbuild)
 just build amd64
@@ -87,13 +84,13 @@ just build arm64
 ### Run
 
 ```bash
-./target/release/kubelet \
+./bazel-bin/src/main \
   --node-name <node-name> \
   --kubeconfig /etc/kubernetes/kubelet.conf \
   --container-runtime-endpoint unix:///run/containerd/containerd.sock
 ```
 
-Run `./target/release/kubelet --help` for all flags.
+Run `./bazel-bin/src/main --help` for all flags.
 
 ### Test
 
@@ -102,10 +99,13 @@ Run `./target/release/kubelet --help` for all flags.
 just test
 
 # Lint
-just lint
+just verify
 
 # Conformance suite only
-just conformance-smoke
+just conformance
+
+# Smoke test suite only
+just smoke
 
 # Full end-to-end conformance (requires Colima)
 bash hack/e2e/colima-run.sh

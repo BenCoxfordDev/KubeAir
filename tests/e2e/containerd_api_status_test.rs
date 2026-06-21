@@ -41,8 +41,8 @@ limitations under the License.
 use k8s_openapi::api::core::v1::{Container, EnvVar, Pod, PodSpec as KubePodSpec};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{
-    api::{Api, DeleteParams, PostParams},
     Client, Config,
+    api::{Api, DeleteParams, PostParams},
 };
 use serde_json::Value;
 use std::process::Command;
@@ -237,30 +237,30 @@ async fn e2e_pod_succeeded_phase_matches_containerd_exited() {
         .and_then(|id| id.strip_prefix("containerd://"))
         .map(|s| s.to_string());
 
-    if let Some(cid) = container_id {
-        if let Some(info) = crictl_inspect(&cid) {
-            let ctr_state = info
-                .pointer("/status/state")
-                .and_then(|v| v.as_str())
-                .unwrap_or("UNKNOWN");
+    if let Some(cid) = container_id
+        && let Some(info) = crictl_inspect(&cid)
+    {
+        let ctr_state = info
+            .pointer("/status/state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("UNKNOWN");
 
-            assert!(
-                ctr_state.contains("EXITED") || ctr_state.contains("STOPPED"),
-                "containerd state should be EXITED/STOPPED, got: {}",
-                ctr_state
-            );
+        assert!(
+            ctr_state.contains("EXITED") || ctr_state.contains("STOPPED"),
+            "containerd state should be EXITED/STOPPED, got: {}",
+            ctr_state
+        );
 
-            let crictl_exit_code = info
-                .pointer("/status/exitCode")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(-1);
+        let crictl_exit_code = info
+            .pointer("/status/exitCode")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(-1);
 
-            assert_eq!(
-                crictl_exit_code, 0,
-                "containerd exit code mismatch: API={}, containerd={}",
-                terminated.exit_code, crictl_exit_code
-            );
-        }
+        assert_eq!(
+            crictl_exit_code, 0,
+            "containerd exit code mismatch: API={}, containerd={}",
+            terminated.exit_code, crictl_exit_code
+        );
     }
 
     cleanup_pod(&pods, pod_name).await;
@@ -379,19 +379,19 @@ async fn e2e_running_pod_state_matches_containerd() {
         .and_then(|id| id.strip_prefix("containerd://"))
         .map(|s| s.to_string());
 
-    if let Some(cid) = container_id {
-        if let Some(info) = crictl_inspect(&cid) {
-            let ctr_state = info
-                .pointer("/status/state")
-                .and_then(|v| v.as_str())
-                .unwrap_or("UNKNOWN");
+    if let Some(cid) = container_id
+        && let Some(info) = crictl_inspect(&cid)
+    {
+        let ctr_state = info
+            .pointer("/status/state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("UNKNOWN");
 
-            assert!(
-                ctr_state.contains("RUNNING"),
-                "containerd state should be RUNNING while API shows Running, got: {}",
-                ctr_state
-            );
-        }
+        assert!(
+            ctr_state.contains("RUNNING"),
+            "containerd state should be RUNNING while API shows Running, got: {}",
+            ctr_state
+        );
     }
 
     cleanup_pod(&pods, pod_name).await;
@@ -428,18 +428,17 @@ async fn e2e_last_termination_state_populated_after_restart() {
     let mut restart_count_seen: i32 = 0;
 
     loop {
-        if let Ok(pod) = pods.get(pod_name).await {
-            if let Some(rc) = pod
+        if let Ok(pod) = pods.get(pod_name).await
+            && let Some(rc) = pod
                 .status
                 .as_ref()
                 .and_then(|s| s.container_statuses.as_deref())
                 .and_then(|cs| cs.iter().find(|c| c.name == "main"))
                 .map(|cs| cs.restart_count)
-            {
-                restart_count_seen = rc;
-                if rc >= 1 {
-                    break;
-                }
+        {
+            restart_count_seen = rc;
+            if rc >= 1 {
+                break;
             }
         }
         if std::time::Instant::now() >= deadline {

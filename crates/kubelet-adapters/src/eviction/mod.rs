@@ -85,10 +85,10 @@ pub fn parse_quantity(s: &str) -> Option<u64> {
     ];
 
     for (suffix, multiplier) in suffixes {
-        if let Some(num_str) = s.strip_suffix(suffix) {
-            if let Ok(n) = num_str.parse::<f64>() {
-                return Some((n * *multiplier as f64) as u64);
-            }
+        if let Some(num_str) = s.strip_suffix(suffix)
+            && let Ok(n) = num_str.parse::<f64>()
+        {
+            return Some((n * *multiplier as f64) as u64);
         }
     }
 
@@ -227,7 +227,7 @@ mod tests {
             value: ThresholdValue::Percentage(0.10), // 10%
         };
         let total = 100 * 1024 * 1024 * 1024u64; // 100Gi
-                                                 // 5Gi available = 5% < 10% -> exceeded
+        // 5Gi available = 5% < 10% -> exceeded
         assert!(t.is_exceeded(5 * 1024 * 1024 * 1024, total));
         // 15Gi available = 15% > 10% -> not exceeded
         assert!(!t.is_exceeded(15 * 1024 * 1024 * 1024, total));

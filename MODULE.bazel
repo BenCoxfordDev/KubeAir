@@ -1,0 +1,32 @@
+""" Gazelle modules for rust """
+
+module(
+    name = "kubeair",
+    version = "1.33.0",
+)
+
+# Use stable versions available in Bazel registry
+bazel_dep(name = "rules_rust", version = "0.70.0")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "gazelle", version = "0.51.3")
+bazel_dep(name = "rules_go", version = "0.61.1")
+
+# Rust toolchain setup with explicit version
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2024",
+    versions = ["1.96.0"],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+# Crate Universe: Converts Cargo.lock + Cargo.toml into Bazel BUILD files
+crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crates")

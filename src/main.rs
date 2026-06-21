@@ -25,11 +25,11 @@ limitations under the License.
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use clap::Parser;
-use kubelet_app::cli::KubeletArgs;
 use kubelet_app::Kubelet;
+use kubelet_app::cli::KubeletArgs;
 use rustls::crypto::ring;
 use tracing::info;
-use tracing_subscriber::{fmt::time::UtcTime, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt::time::UtcTime};
 
 fn setup_logging(verbosity: u8) {
     let filter = match verbosity {

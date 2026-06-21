@@ -103,63 +103,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            artifact_arch: amd64
+          - artifact_arch: amd64
             runs_on: ubuntu-24.04
-          - target: aarch64-unknown-linux-gnu
-            artifact_arch: arm64
+          - artifact_arch: arm64
             runs_on: ubuntu-24.04 # to change to arm64 runners once available
     runs-on: ${{ matrix.runs_on }}
-    env:
-      CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Rust toolchain is preinstalled
-        shell: bash
-        run: |
-          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
-          command -v rustc
-          command -v cargo
-          command -v rustup
-          rustc --version
-          cargo --version
-          rustup --version
-          rustup target add ${{ matrix.target }}
-          rustup target list --installed
-
-      - name: Install protoc
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-          protoc --version
-
-      - name: Install cross-compilers
-        shell: bash
-        run: |
-          sudo apt-get update
-          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
-            echo "Native x86_64 build; no cross-compiler required"
-          else
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-          fi
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.9.1
         with:
-          shared-key: "rust-release-${{ matrix.target }}"
+          bazelisk-cache: true
+          disk-cache: kubeair
+          repository-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up just
+        uses: extractions/setup-just@v2
 
       - name: Build release binary
-        shell: bash
-        run: |
-          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
-            cargo build --release --locked --bin kubelet --target ${{ matrix.target }}
-          else
-            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-              cargo build --release --locked --bin kubelet --target ${{ matrix.target }}
-          fi
+        run: just build ${{ matrix.artifact_arch }}
 
       - name: Package artifact
         id: package
@@ -169,7 +134,7 @@ jobs:
           ARTIFACT="kubelet-${VERSION}-linux_${{ matrix.artifact_arch }}.tar.gz"
 
           mkdir -p dist
-          cp "target/${{ matrix.target }}/release/kubelet" dist/kubelet
+          cp bazel-bin/src/main dist/kubelet
 
           tar -C dist -czf "$ARTIFACT" kubelet
           sha256sum "$ARTIFACT" > "${ARTIFACT}.sha256"

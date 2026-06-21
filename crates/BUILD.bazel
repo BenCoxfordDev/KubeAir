@@ -1,0 +1,3 @@
+# gazelle:ignore
+# This package aggregates unit tests from all crates
+# Individual test targets are defined in each crate's src/BUILD.bazel

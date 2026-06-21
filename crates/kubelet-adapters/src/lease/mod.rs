@@ -28,7 +28,7 @@ use kubelet_core::lease::NodeLease;
 use kubelet_ports::driven::node_reporter::NodeReporter;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 use tracing::{debug, error, info, warn};
 
 /// State of the lease controller.

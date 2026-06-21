@@ -239,13 +239,13 @@ impl AdmissionController {
         }
 
         // 5. RuntimeClass
-        if let Some(rc) = &pod.runtime_class_name {
-            if !known_runtime_classes.contains(rc.as_str()) {
-                return AdmissionResult::Reject(format!(
-                    "RuntimeClass '{}' not available on this node",
-                    rc
-                ));
-            }
+        if let Some(rc) = &pod.runtime_class_name
+            && !known_runtime_classes.contains(rc.as_str())
+        {
+            return AdmissionResult::Reject(format!(
+                "RuntimeClass '{}' not available on this node",
+                rc
+            ));
         }
 
         // 6. Node selector

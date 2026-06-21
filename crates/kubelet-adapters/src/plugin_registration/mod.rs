@@ -44,8 +44,8 @@ use tracing::{error, info, warn};
 
 // Import generated proto types for Registration service.
 use crate::device_manager::proto::{
-    registration_server::{Registration, RegistrationServer},
     Empty, RegisterRequest,
+    registration_server::{Registration, RegistrationServer},
 };
 
 // -- Registration types --------------------------------------------------------

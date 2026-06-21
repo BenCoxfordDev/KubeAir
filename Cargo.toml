@@ -10,8 +10,8 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "1.33.1"
-edition = "2021"
+version = "1.33.0"
+edition = "2024"
 authors = ["Ben Coxford"]
 license = "Apache-2.0"
 description = "A Rust reimplementation of the Kubernetes kubelet"
@@ -76,10 +76,16 @@ rcgen = "0.13"
 libc = "0.2"
 rustls = { version = "0.23", features = ["ring"], default-features = false }
 tonic = { version = "0.12", features = ["transport", "tls"] }
+tonic-health = "0.12"
 prost = "0.13"
 prost-types = "0.13"
 tempfile = "3"
 nix = { version = "0.28", features = ["signal", "process", "fs", "mount"] }
+hyper-util = "0.1"
+num_cpus = "1"
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
+x509-parser = "0.16"
 
 # Testing
 mockall = "0.12"

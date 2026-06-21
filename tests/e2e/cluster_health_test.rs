@@ -36,8 +36,8 @@ limitations under the License.
 
 use k8s_openapi::api::core::v1::{Node, Pod};
 use kube::{
-    api::{Api, ListParams},
     Client, Config,
+    api::{Api, ListParams},
 };
 use std::collections::HashSet;
 use std::time::Duration;

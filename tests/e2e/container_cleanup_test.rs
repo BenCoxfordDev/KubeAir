@@ -40,8 +40,8 @@ limitations under the License.
 use k8s_openapi::api::core::v1::{Container, EnvVar, Pod, PodSpec as KubePodSpec};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{
-    api::{Api, DeleteParams, PostParams},
     Client, Config,
+    api::{Api, DeleteParams, PostParams},
 };
 use serde_json::Value;
 use std::collections::BTreeMap;

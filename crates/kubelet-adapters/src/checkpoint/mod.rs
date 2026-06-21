@@ -23,7 +23,7 @@ limitations under the License.
 //! a JSON-serialized payload.
 
 use kubelet_core::error::{KubeletError, Result};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
@@ -86,10 +86,10 @@ impl CheckpointManager {
         for entry in std::fs::read_dir(&self.dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map(|e| e == "json").unwrap_or(false) {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    keys.push(stem.to_string());
-                }
+            if path.extension().map(|e| e == "json").unwrap_or(false)
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                keys.push(stem.to_string());
             }
         }
         Ok(keys)

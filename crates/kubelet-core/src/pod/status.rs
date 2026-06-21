@@ -53,10 +53,10 @@ impl PodStatusManager {
     /// Only sets it if no start_time is currently stored, so it never overwrites
     /// a value that was set by initialize() or a prior sync cycle.
     pub fn seed_start_time(&self, uid: &PodUID, start_time: chrono::DateTime<Utc>) {
-        if let Some(mut entry) = self.states.get_mut(uid) {
-            if entry.start_time.is_none() {
-                entry.start_time = Some(start_time);
-            }
+        if let Some(mut entry) = self.states.get_mut(uid)
+            && entry.start_time.is_none()
+        {
+            entry.start_time = Some(start_time);
         }
     }
 

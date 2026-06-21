@@ -29,15 +29,15 @@ use base64::Engine;
 use chrono::Utc;
 use dashmap::DashMap;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service, ServiceAccount};
-use kube::{api::ListParams, Api, Client as KubeClient};
+use kube::{Api, Client as KubeClient, api::ListParams};
 use kubelet_adapters::cgroup::CgroupManager;
 use kubelet_adapters::checkpoint::{CheckpointManager, PodCheckpoint};
 use kubelet_adapters::device_manager::DeviceManager;
 use kubelet_adapters::lifecycle::{run_post_start, run_pre_stop};
 use kubelet_adapters::oom_watcher::OomScoreManager;
 use kubelet_adapters::prober::ProbeState;
-use kubelet_adapters::sandbox_builder::{build_dns_config, NodeDnsConfig};
-use kubelet_adapters::volume_fsgroup::{apply_fs_group, FsGroupPolicy};
+use kubelet_adapters::sandbox_builder::{NodeDnsConfig, build_dns_config};
+use kubelet_adapters::volume_fsgroup::{FsGroupPolicy, apply_fs_group};
 use kubelet_core::container::RuntimeContainerState;
 use kubelet_core::error::{KubeletError, Result};
 use kubelet_core::pod::lifecycle::{
@@ -281,46 +281,44 @@ impl PodWorker {
         }
 
         // Check activeDeadlineSeconds: if the pod has been running past its deadline, kill it.
-        if let Some(deadline_secs) = pod.active_deadline_seconds {
-            if let Some(ls) = self.pod_manager.status.get(&pod.uid) {
-                if let Some(start_time) = ls.start_time {
-                    let elapsed_secs = Utc::now().signed_duration_since(start_time).num_seconds();
-                    if elapsed_secs > deadline_secs as i64 {
-                        info!(
-                            pod = %pod.pod_ref,
-                            deadline_secs,
-                            elapsed_secs,
-                            "Active deadline exceeded, terminating pod"
+        if let Some(deadline_secs) = pod.active_deadline_seconds
+            && let Some(ls) = self.pod_manager.status.get(&pod.uid)
+            && let Some(start_time) = ls.start_time
+        {
+            let elapsed_secs = Utc::now().signed_duration_since(start_time).num_seconds();
+            if elapsed_secs > deadline_secs as i64 {
+                info!(
+                    pod = %pod.pod_ref,
+                    deadline_secs,
+                    elapsed_secs,
+                    "Active deadline exceeded, terminating pod"
+                );
+                let _ = self
+                    .terminate_pod(
+                        pod,
+                        state,
+                        Duration::from_secs(pod.termination_grace_period_seconds),
+                    )
+                    .await;
+                if let Some(mut final_state) = self.pod_manager.status.get(&pod.uid) {
+                    final_state.phase = PodPhase::Failed;
+                    final_state.reason = Some("DeadlineExceeded".to_string());
+                    if let Some(pos) = final_state
+                        .conditions
+                        .iter()
+                        .position(|c| c.condition_type == PodConditionType::Ready)
+                    {
+                        final_state.conditions[pos].status = ConditionStatus::False;
+                        final_state.conditions[pos].reason = Some("DeadlineExceeded".to_string());
+                        final_state.conditions[pos].message = Some(
+                            "Pod was active on the node longer than the specified deadline"
+                                .to_string(),
                         );
-                        let _ = self
-                            .terminate_pod(
-                                pod,
-                                state,
-                                Duration::from_secs(pod.termination_grace_period_seconds),
-                            )
-                            .await;
-                        if let Some(mut final_state) = self.pod_manager.status.get(&pod.uid) {
-                            final_state.phase = PodPhase::Failed;
-                            final_state.reason = Some("DeadlineExceeded".to_string());
-                            if let Some(pos) = final_state
-                                .conditions
-                                .iter()
-                                .position(|c| c.condition_type == PodConditionType::Ready)
-                            {
-                                final_state.conditions[pos].status = ConditionStatus::False;
-                                final_state.conditions[pos].reason =
-                                    Some("DeadlineExceeded".to_string());
-                                final_state.conditions[pos].message = Some(
-                                    "Pod was active on the node longer than the specified deadline"
-                                        .to_string(),
-                                );
-                                final_state.conditions[pos].last_transition_time = Some(Utc::now());
-                            }
-                            self.pod_manager.status.set(pod.uid.clone(), final_state);
-                        }
-                        return PodSyncResult::Terminated;
+                        final_state.conditions[pos].last_transition_time = Some(Utc::now());
                     }
+                    self.pod_manager.status.set(pod.uid.clone(), final_state);
                 }
+                return PodSyncResult::Terminated;
             }
         }
 
@@ -686,15 +684,15 @@ impl PodWorker {
                     }
                 }
                 Err(e) => {
-                    if let kubelet_core::error::KubeletError::Runtime(_) = &e {
-                        if is_sandbox_not_found_error(&e) {
-                            warn!(pod = %pod.pod_ref, sandbox_id = %sandbox_id, "Sandbox gone (init container) — clearing state to force sandbox recreation");
-                            state.sandbox_id = None;
-                            state.container_ids.clear();
-                            return PodSyncResult::NeedsRetry(
-                                "sandbox not found, will recreate".to_string(),
-                            );
-                        }
+                    if let kubelet_core::error::KubeletError::Runtime(_) = &e
+                        && is_sandbox_not_found_error(&e)
+                    {
+                        warn!(pod = %pod.pod_ref, sandbox_id = %sandbox_id, "Sandbox gone (init container) — clearing state to force sandbox recreation");
+                        state.sandbox_id = None;
+                        state.container_ids.clear();
+                        return PodSyncResult::NeedsRetry(
+                            "sandbox not found, will recreate".to_string(),
+                        );
                     }
                     // Increment pre-create failure backoff for init containers.
                     *state
@@ -715,20 +713,17 @@ impl PodWorker {
         }
 
         // All init containers completed: mark pod as Initialized.
-        if !pod.init_containers.is_empty() {
-            if let Some(mut ls) = self.pod_manager.status.get(&pod.uid) {
-                if let Some(pos) = ls
-                    .conditions
-                    .iter()
-                    .position(|c| c.condition_type == PodConditionType::Initialized)
-                {
-                    if ls.conditions[pos].status != ConditionStatus::True {
-                        ls.conditions[pos].status = ConditionStatus::True;
-                        ls.conditions[pos].last_transition_time = Some(Utc::now());
-                        self.pod_manager.status.set(pod.uid.clone(), ls);
-                    }
-                }
-            }
+        if !pod.init_containers.is_empty()
+            && let Some(mut ls) = self.pod_manager.status.get(&pod.uid)
+            && let Some(pos) = ls
+                .conditions
+                .iter()
+                .position(|c| c.condition_type == PodConditionType::Initialized)
+            && ls.conditions[pos].status != ConditionStatus::True
+        {
+            ls.conditions[pos].status = ConditionStatus::True;
+            ls.conditions[pos].last_transition_time = Some(Utc::now());
+            self.pod_manager.status.set(pod.uid.clone(), ls);
         }
 
         // Step 4: Start app containers
@@ -915,15 +910,15 @@ impl PodWorker {
                 tokio::time::sleep(Duration::from_secs(backoff_secs as u64)).await;
             }
             if let Err(e) = self.start_container(pod, ctr, &sandbox_id, state).await {
-                if let kubelet_core::error::KubeletError::Runtime(_) = &e {
-                    if is_sandbox_not_found_error(&e) {
-                        warn!(pod = %pod.pod_ref, sandbox_id = %sandbox_id, "Sandbox gone — clearing state to force sandbox recreation");
-                        state.sandbox_id = None;
-                        state.container_ids.clear();
-                        return PodSyncResult::NeedsRetry(
-                            "sandbox not found, will recreate".to_string(),
-                        );
-                    }
+                if let kubelet_core::error::KubeletError::Runtime(_) = &e
+                    && is_sandbox_not_found_error(&e)
+                {
+                    warn!(pod = %pod.pod_ref, sandbox_id = %sandbox_id, "Sandbox gone — clearing state to force sandbox recreation");
+                    state.sandbox_id = None;
+                    state.container_ids.clear();
+                    return PodSyncResult::NeedsRetry(
+                        "sandbox not found, will recreate".to_string(),
+                    );
                 }
                 *state
                     .start_failure_backoff
@@ -988,14 +983,12 @@ impl PodWorker {
             let cid = kubelet_core::container::ContainerID::new(cid_str.clone());
 
             // Run PreStop hook if defined (best effort: failure is logged, stop still proceeds)
-            if let Some(ctr_spec) = all_containers.iter().find(|c| &c.name == name) {
-                if let Some(lc) = &ctr_spec.lifecycle {
-                    if let Some(handler) = &lc.pre_stop {
-                        info!(container = %name, "Running PreStop hook");
-                        run_pre_stop(handler, &cid, name, self.runtime.as_ref(), grace_period)
-                            .await;
-                    }
-                }
+            if let Some(ctr_spec) = all_containers.iter().find(|c| &c.name == name)
+                && let Some(lc) = &ctr_spec.lifecycle
+                && let Some(handler) = &lc.pre_stop
+            {
+                info!(container = %name, "Running PreStop hook");
+                run_pre_stop(handler, &cid, name, self.runtime.as_ref(), grace_period).await;
             }
 
             // Try graceful stop first
@@ -2148,10 +2141,11 @@ impl PodWorker {
                 .map(|v| v.as_str())
                 == Some(ctr.name.as_str());
 
-            if pod_uid_matches && container_name_matches {
-                if let Err(e) = self.runtime.remove_container(&container.id).await {
-                    warn!(container = %container.name, error = %e, "Failed to remove reserved container");
-                }
+            if pod_uid_matches
+                && container_name_matches
+                && let Err(e) = self.runtime.remove_container(&container.id).await
+            {
+                warn!(container = %container.name, error = %e, "Failed to remove reserved container");
             }
         }
     }
@@ -2252,11 +2246,11 @@ impl PodWorker {
                     // can mount it (required for SubPathExpr with non-existent paths).
                     // If the path already exists (as a file or directory) that is fine —
                     // the runtime mounts whatever is at that path directly.
-                    if let Err(e) = std::fs::create_dir_all(&full) {
-                        if e.kind() != std::io::ErrorKind::AlreadyExists {
-                            warn!(container = %ctr.name, path = %full.display(), error = %e,
+                    if let Err(e) = std::fs::create_dir_all(&full)
+                        && e.kind() != std::io::ErrorKind::AlreadyExists
+                    {
+                        warn!(container = %ctr.name, path = %full.display(), error = %e,
                                 "Failed to create subpath directory");
-                        }
                     }
                     full
                 }
@@ -2455,16 +2449,14 @@ impl PodWorker {
 
         // PostStart lifecycle hook — if defined, run it immediately after start.
         // On failure, stop the container and return an error (pod worker will retry/fail).
-        if let Some(lc) = &ctr.lifecycle {
-            if let Some(handler) = &lc.post_start {
-                info!(pod = %pod.pod_ref, container = %ctr.name, "Running PostStart hook");
-                if let Err(e) =
-                    run_post_start(handler, &cid, &ctr.name, self.runtime.as_ref()).await
-                {
-                    warn!(pod = %pod.pod_ref, container = %ctr.name, error = %e, "PostStart hook failed; stopping container");
-                    let _ = self.runtime.stop_container(&cid, 0).await;
-                    return Err(e);
-                }
+        if let Some(lc) = &ctr.lifecycle
+            && let Some(handler) = &lc.post_start
+        {
+            info!(pod = %pod.pod_ref, container = %ctr.name, "Running PostStart hook");
+            if let Err(e) = run_post_start(handler, &cid, &ctr.name, self.runtime.as_ref()).await {
+                warn!(pod = %pod.pod_ref, container = %ctr.name, error = %e, "PostStart hook failed; stopping container");
+                let _ = self.runtime.stop_container(&cid, 0).await;
+                return Err(e);
             }
         }
 
@@ -2647,16 +2639,16 @@ impl PodWorker {
             match sa_api.get(sa_name).await {
                 Ok(sa) => {
                     for r in sa.image_pull_secrets.unwrap_or_default() {
-                        if let Some(name) = r.name {
-                            if !secret_names.contains(&name) {
-                                debug!(
-                                    pod = %pod.pod_ref,
-                                    sa = sa_name,
-                                    secret = %name,
-                                    "Adding SA-level imagePullSecret"
-                                );
-                                secret_names.push(name);
-                            }
+                        if let Some(name) = r.name
+                            && !secret_names.contains(&name)
+                        {
+                            debug!(
+                                pod = %pod.pod_ref,
+                                sa = sa_name,
+                                secret = %name,
+                                "Adding SA-level imagePullSecret"
+                            );
+                            secret_names.push(name);
                         }
                     }
                 }
@@ -3004,9 +2996,7 @@ impl PodWorker {
             let incomplete: Vec<&str> = ls
                 .init_container_statuses
                 .iter()
-                .filter(|s| {
-                    !matches!(&s.state, ContainerState::Terminated { exit_code, .. } if *exit_code == 0)
-                })
+                .filter(|s| !matches!(&s.state, ContainerState::Terminated { exit_code, .. } if *exit_code == 0))
                 .map(|s| s.name.as_str())
                 .collect();
             let (init_cond_status, init_reason, init_message) = if incomplete.is_empty() {
@@ -3385,10 +3375,11 @@ fn sandbox_matches_pod_identity(sandbox: &SandboxStatus, pod: &PodSpec, node_nam
     // Cross-convention match: pod name is suffixed (kube-vip-worker-node)
     // but sandbox was created by an older kubelet without the suffix (kube-vip).
     let suffix = format!("-{}", node_name);
-    if let Some(base_name) = pod.pod_ref.name.strip_suffix(&suffix) {
-        if sandbox.pod_name == base_name && sandbox.pod_namespace == pod.pod_ref.namespace {
-            return true;
-        }
+    if let Some(base_name) = pod.pod_ref.name.strip_suffix(&suffix)
+        && sandbox.pod_name == base_name
+        && sandbox.pod_namespace == pod.pod_ref.namespace
+    {
+        return true;
     }
 
     let label_name = sandbox.labels.get("io.kubernetes.pod.name");
@@ -3399,10 +3390,10 @@ fn sandbox_matches_pod_identity(sandbox: &SandboxStatus, pod: &PodSpec, node_nam
             if name == &pod.pod_ref.name {
                 return true;
             }
-            if let Some(base_name) = pod.pod_ref.name.strip_suffix(&suffix) {
-                if name == base_name {
-                    return true;
-                }
+            if let Some(base_name) = pod.pod_ref.name.strip_suffix(&suffix)
+                && name == base_name
+            {
+                return true;
             }
             false
         }
@@ -4384,10 +4375,10 @@ fn expected_secret_paths(
 /// This avoids spurious inotify/fsnotify events that cause watchers (e.g. kube-proxy)
 /// to reload unnecessarily on every kubelet pod-sync cycle.
 async fn write_if_changed(file_path: &std::path::Path, value: &[u8]) -> Result<()> {
-    if let Ok(existing) = tokio::fs::read(file_path).await {
-        if existing == value {
-            return Ok(());
-        }
+    if let Ok(existing) = tokio::fs::read(file_path).await
+        && existing == value
+    {
+        return Ok(());
     }
     tokio::fs::write(file_path, value).await?;
     Ok(())
@@ -4706,12 +4697,11 @@ fn node_allocatable_memory_bytes() -> i64 {
     {
         if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
             for line in content.lines() {
-                if line.starts_with("MemTotal:") {
-                    if let Some(kb_str) = line.split_whitespace().nth(1) {
-                        if let Ok(kb_val) = kb_str.parse::<i64>() {
-                            return kb_val * 1024;
-                        }
-                    }
+                if line.starts_with("MemTotal:")
+                    && let Some(kb_str) = line.split_whitespace().nth(1)
+                    && let Ok(kb_val) = kb_str.parse::<i64>()
+                {
+                    return kb_val * 1024;
                 }
             }
         }
@@ -4870,7 +4860,7 @@ async fn spawn_liveness_probe(
     container_name: String,
 ) {
     use kubelet_adapters::prober::{
-        evaluate_probe_result, run_probe, ProbeDecision, ProbeState, ProbeType,
+        ProbeDecision, ProbeState, ProbeType, evaluate_probe_result, run_probe,
     };
 
     info!(
@@ -4941,7 +4931,7 @@ async fn spawn_startup_probe(
     done_map: Arc<DashMap<String, bool>>,
 ) {
     use kubelet_adapters::prober::{
-        evaluate_probe_result, run_probe, ProbeDecision, ProbeState, ProbeType,
+        ProbeDecision, ProbeState, ProbeType, evaluate_probe_result, run_probe,
     };
 
     tokio::time::sleep(Duration::from_secs(probe.initial_delay_seconds as u64)).await;
@@ -4989,7 +4979,7 @@ async fn spawn_readiness_probe(
     readiness_map: Arc<DashMap<String, bool>>,
 ) {
     use kubelet_adapters::prober::{
-        evaluate_probe_result, run_probe, ProbeDecision, ProbeState, ProbeType,
+        ProbeDecision, ProbeState, ProbeType, evaluate_probe_result, run_probe,
     };
 
     // Containers start not-ready until the readiness probe passes.
@@ -5029,20 +5019,19 @@ async fn spawn_readiness_probe(
 /// Detect the node's internal (non-loopback) IP address.
 /// Uses the UDP connect trick to find the default-route source IP.
 fn detect_node_internal_ip() -> String {
-    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
-        if sock.connect("1.1.1.1:80").is_ok() {
-            if let Ok(addr) = sock.local_addr() {
-                if let std::net::IpAddr::V4(v4) = addr.ip() {
-                    if !v4.is_loopback() {
-                        return v4.to_string();
-                    }
-                }
-                // IPv6
-                let s = addr.ip().to_string();
-                if !s.starts_with("::1") && s != "::1" {
-                    return s;
-                }
-            }
+    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0")
+        && sock.connect("1.1.1.1:80").is_ok()
+        && let Ok(addr) = sock.local_addr()
+    {
+        if let std::net::IpAddr::V4(v4) = addr.ip()
+            && !v4.is_loopback()
+        {
+            return v4.to_string();
+        }
+        // IPv6
+        let s = addr.ip().to_string();
+        if !s.starts_with("::1") && s != "::1" {
+            return s;
         }
     }
     "127.0.0.1".to_string()
@@ -6054,7 +6043,7 @@ mod tests {
     #[test]
     fn test_docker_auths_from_secret_prefers_dockerconfigjson() {
         use base64::Engine as _;
-        use k8s_openapi::{api::core::v1::Secret, ByteString};
+        use k8s_openapi::{ByteString, api::core::v1::Secret};
         let creds = base64::engine::general_purpose::STANDARD.encode("newuser:newpass");
         let json = format!(r#"{{"auths": {{"docker.io": {{"auth": "{}"}}}}}}"#, creds).into_bytes();
         let mut data = std::collections::BTreeMap::new();

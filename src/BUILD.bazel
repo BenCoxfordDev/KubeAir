@@ -1,0 +1,18 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+rust_binary(
+    name = "main",
+    srcs = ["main.rs"],
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/kubelet-app/src:lib",
+        "@crates//:anyhow",
+        "@crates//:clap",
+        "@crates//:rustls",
+        "@crates//:tikv-jemallocator",
+        "@crates//:tokio",
+        "@crates//:tracing",
+        "@crates//:tracing-subscriber",
+    ],
+)

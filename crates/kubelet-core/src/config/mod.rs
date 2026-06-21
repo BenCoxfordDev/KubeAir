@@ -200,10 +200,7 @@ impl KubeletConfig {
             errors.push("node_name must be set".to_string());
         }
         if self.image_gc_high_threshold_percent <= self.image_gc_low_threshold_percent {
-            errors.push(
-                "image_gc_high_threshold_percent must be greater than image_gc_low_threshold_percent"
-                    .to_string(),
-            );
+            errors.push("image_gc_high_threshold_percent must be greater than image_gc_low_threshold_percent".to_string());
         }
         if self.max_pods == 0 {
             errors.push("max_pods must be > 0".to_string());
@@ -297,17 +294,25 @@ mod tests {
         let result = config.validate();
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|e| e == "sync_frequency must be non-zero"));
-        assert!(errors
-            .iter()
-            .any(|e| e == "node_status_update_frequency must be non-zero"));
-        assert!(errors
-            .iter()
-            .any(|e| e == "file_check_frequency must be non-zero"));
-        assert!(errors
-            .iter()
-            .any(|e| e == "http_check_frequency must be non-zero"));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e == "sync_frequency must be non-zero")
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e == "node_status_update_frequency must be non-zero")
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e == "file_check_frequency must be non-zero")
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e == "http_check_frequency must be non-zero")
+        );
     }
 }

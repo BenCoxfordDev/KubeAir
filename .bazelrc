@@ -1,0 +1,15 @@
+build --test_output=errors
+test --test_output=errors
+build --experimental_strict_action_env
+
+# clippy checks
+build --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
+build --output_groups=+clippy_checks
+
+# rustfmt
+build --@rules_rust//rust/settings:rustfmt.toml=//:rustfmt.toml
+build --aspects=@rules_rust//rust:defs.bzl%rustfmt_aspect
+build --output_groups=+rustfmt_checks
+
+# Configuration for building without clippy checks
+build:no_clippy --output_groups=-clippy_checks

@@ -1,0 +1,137 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+# gazelle:ignore
+# gazelle:exclude active_deadline
+# gazelle:exclude admission
+# gazelle:exclude cert_rotator
+# gazelle:exclude cgroup
+# gazelle:exclude checkpoint
+# gazelle:exclude cni
+# gazelle:exclude container_builder
+# gazelle:exclude cpu_manager
+# gazelle:exclude csi
+# gazelle:exclude device_manager
+# gazelle:exclude dra
+# gazelle:exclude eviction
+# gazelle:exclude file_config
+# gazelle:exclude image_gc
+# gazelle:exclude image_puller
+# gazelle:exclude kube_client
+# gazelle:exclude kube_reporter
+# gazelle:exclude kube_watcher
+# gazelle:exclude lease
+# gazelle:exclude lifecycle
+# gazelle:exclude log_manager
+# gazelle:exclude memory_manager
+# gazelle:exclude mock_runtime
+# gazelle:exclude network
+# gazelle:exclude nfd
+# gazelle:exclude node_status
+# gazelle:exclude oom_watcher
+# gazelle:exclude plugin_registration
+# gazelle:exclude probe_runner
+# gazelle:exclude prober
+# gazelle:exclude resource_manager
+# gazelle:exclude resource_version
+# gazelle:exclude runtime_class
+# gazelle:exclude sandbox_builder
+# gazelle:exclude security_profile
+# gazelle:exclude shutdown
+# gazelle:exclude stats
+# gazelle:exclude tls
+# gazelle:exclude topology_manager
+# gazelle:exclude url_config
+# gazelle:exclude volume
+# gazelle:exclude volume_expander
+# gazelle:exclude volume_fsgroup
+
+rust_library(
+    name = "lib",
+    srcs = glob(["**/*.rs"]),
+    crate_name = "kubelet_adapters",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/kubelet-core/src:lib",
+        "//crates/kubelet-ports/src:lib",
+        "@crates//:anyhow",
+        "@crates//:base64",
+        "@crates//:chrono",
+        "@crates//:dashmap",
+        "@crates//:futures",
+        "@crates//:hostname",
+        "@crates//:hyper-util",
+        "@crates//:k8s-openapi",
+        "@crates//:kube",
+        "@crates//:libc",
+        "@crates//:num_cpus",
+        "@crates//:parking_lot",
+        "@crates//:prost",
+        "@crates//:rcgen",
+        "@crates//:reqwest",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:serde_yaml",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tokio-stream",
+        "@crates//:tonic",
+        "@crates//:tonic-health",
+        "@crates//:tower",
+        "@crates//:tracing",
+        "@crates//:uuid",
+    ],
+)
+
+rust_library(
+    name = "src",
+    srcs = glob(["**/*.rs"]),
+    edition = "2024",
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+    deps = [
+        "//crates/kubelet-core/src:lib",
+        "//crates/kubelet-ports/src:lib",
+        "@crates//:anyhow",
+        "@crates//:base64",
+        "@crates//:chrono",
+        "@crates//:dashmap",
+        "@crates//:futures",
+        "@crates//:hostname",
+        "@crates//:hyper-util",
+        "@crates//:k8s-openapi",
+        "@crates//:kube",
+        "@crates//:libc",
+        "@crates//:num_cpus",
+        "@crates//:parking_lot",
+        "@crates//:prost",
+        "@crates//:rcgen",
+        "@crates//:reqwest",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:serde_yaml",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tokio-stream",
+        "@crates//:tonic",
+        "@crates//:tonic-health",
+        "@crates//:tower",
+        "@crates//:tracing",
+        "@crates//:uuid",
+    ],
+)
+
+rust_test(
+    name = "adapters_test",
+    crate = ":lib",
+    edition = "2024",
+    deps = [
+        "@crates//:mockall",
+        "@crates//:rstest",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+    ],
+)

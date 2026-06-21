@@ -288,24 +288,14 @@ impl FilePodSource {
                 } else if let Some(config_map) = v.config_map {
                     VolumeSource::ConfigMap {
                         name: config_map.name.unwrap_or_default(),
-                        items: config_map
-                            .items
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(manifest_key_to_path)
-                            .collect(),
+                        items: config_map.items.unwrap_or_default().into_iter().map(manifest_key_to_path).collect(),
                         optional: config_map.optional.unwrap_or(false),
                         default_mode: config_map.default_mode,
                     }
                 } else if let Some(secret) = v.secret {
                     VolumeSource::Secret {
                         secret_name: secret.secret_name.unwrap_or_default(),
-                        items: secret
-                            .items
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(manifest_key_to_path)
-                            .collect(),
+                        items: secret.items.unwrap_or_default().into_iter().map(manifest_key_to_path).collect(),
                         optional: secret.optional.unwrap_or(false),
                         default_mode: secret.default_mode,
                     }
@@ -329,23 +319,13 @@ impl FilePodSource {
                             } else if let Some(cm) = s.config_map {
                                 Some(ProjectedVolumeSource::ConfigMap {
                                     name: cm.name.unwrap_or_default(),
-                                    items: cm
-                                        .items
-                                        .unwrap_or_default()
-                                        .into_iter()
-                                        .map(manifest_key_to_path)
-                                        .collect(),
+                                    items: cm.items.unwrap_or_default().into_iter().map(manifest_key_to_path).collect(),
                                     optional: cm.optional.unwrap_or(false),
                                 })
                             } else if let Some(secret) = s.secret {
                                 Some(ProjectedVolumeSource::Secret {
                                     name: secret.name.unwrap_or_default(),
-                                    items: secret
-                                        .items
-                                        .unwrap_or_default()
-                                        .into_iter()
-                                        .map(manifest_key_to_path)
-                                        .collect(),
+                                    items: secret.items.unwrap_or_default().into_iter().map(manifest_key_to_path).collect(),
                                     optional: secret.optional.unwrap_or(false),
                                 })
                             } else {
@@ -363,10 +343,7 @@ impl FilePodSource {
                     return None;
                 };
 
-                Some(VolumeSpec {
-                    name: v.name,
-                    source,
-                })
+                Some(VolumeSpec { name: v.name, source })
             })
             .collect();
 

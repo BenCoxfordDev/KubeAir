@@ -1,0 +1,98 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+
+# gazelle:ignore
+# Individual test targets for each integration test file
+rust_test(
+    name = "container_state_test",
+    srcs = ["container_state_test.rs"],
+    deps = [
+        "//crates/kubelet-core/src:lib",
+        "@crates//:chrono",
+    ],
+)
+
+rust_test(
+    name = "downward_api_env_test",
+    srcs = ["downward_api_env_test.rs"],
+    deps = [
+        "//crates/kubelet-adapters/src:lib",
+        "//crates/kubelet-app/src:lib",
+        "//crates/kubelet-core/src:lib",
+        "//crates/kubelet-ports/src:lib",
+        "@crates//:rustls",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+    ],
+)
+
+rust_test(
+    name = "pod_lifecycle_test",
+    srcs = ["pod_lifecycle_test.rs"],
+    deps = [
+        "//crates/kubelet-adapters/src:lib",
+        "//crates/kubelet-app/src:lib",
+        "//crates/kubelet-core/src:lib",
+        "//crates/kubelet-cri/src:lib",
+        "//crates/kubelet-ports/src:lib",
+        "@crates//:chrono",
+        "@crates//:rustls",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tracing",
+        "@crates//:uuid",
+    ],
+)
+
+rust_test(
+    name = "resource_orchestration_test",
+    srcs = ["resource_orchestration_test.rs"],
+    deps = [
+        "//crates/kubelet-adapters/src:lib",
+        "//crates/kubelet-app/src:lib",
+        "//crates/kubelet-core/src:lib",
+        "//crates/kubelet-ports/src:lib",
+        "@crates//:chrono",
+        "@crates//:futures",
+        "@crates//:hyper-util",
+        "@crates//:serde_json",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tonic",
+        "@crates//:tower",
+        "@crates//:tracing",
+        "@crates//:uuid",
+    ],
+)
+
+rust_test(
+    name = "runtime_network_storage_test",
+    srcs = ["runtime_network_storage_test.rs"],
+    deps = [
+        "//crates/kubelet-adapters/src:lib",
+        "//crates/kubelet-app/src:lib",
+        "//crates/kubelet-core/src:lib",
+        "//crates/kubelet-cri/src:lib",
+        "//crates/kubelet-ports/src:lib",
+        "@crates//:chrono",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tracing",
+        "@crates//:uuid",
+    ],
+)
+
+rust_test(
+    name = "security_context_test",
+    srcs = ["security_context_test.rs"],
+    deps = [
+        "//crates/kubelet-adapters/src:lib",
+        "//crates/kubelet-core/src:lib",
+        "//crates/kubelet-ports/src:lib",
+        "@crates//:tokio",
+        "@crates//:tracing",
+    ],
+)

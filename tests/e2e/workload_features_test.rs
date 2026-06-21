@@ -38,8 +38,8 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::{
-    api::{Api, DeleteParams, PostParams},
     Client, Config,
+    api::{Api, DeleteParams, PostParams},
 };
 use std::collections::BTreeMap;
 use std::process::Command;
@@ -281,11 +281,7 @@ async fn e2e_init_container_ordering() {
             init_containers: Some(vec![Container {
                 name: "init".to_string(),
                 image: Some("busybox:1.36".to_string()),
-                command: Some(vec![
-                    "sh".into(),
-                    "-c".into(),
-                    "echo init-done > /shared/sentinel && echo 'init container ran'".into(),
-                ]),
+                command: Some(vec!["sh".into(), "-c".into(), "echo init-done > /shared/sentinel && echo 'init container ran'".into()]),
                 image_pull_policy: Some("IfNotPresent".to_string()),
                 volume_mounts: Some(vec![VolumeMount {
                     name: "shared".to_string(),
@@ -1273,8 +1269,8 @@ async fn e2e_liveness_probe_failing_container_is_restarted() {
 #[ignore]
 async fn test_e2e_device_plugin_kubelet_sock_accepts_registration() {
     use hyper_util::rt::TokioIo;
-    use kubelet_adapters::device_manager::proto::registration_client::RegistrationClient;
     use kubelet_adapters::device_manager::proto::RegisterRequest;
+    use kubelet_adapters::device_manager::proto::registration_client::RegistrationClient;
     use tonic::transport::{Endpoint, Uri};
     use tower::service_fn;
 
@@ -1421,14 +1417,14 @@ async fn e2e_device_plugin_pod_running() {
                 .and_then(|s| s.container_statuses.as_ref())
             {
                 for cs in statuses {
-                    if let Some(waiting) = cs.state.as_ref().and_then(|s| s.waiting.as_ref()) {
-                        if waiting.reason.as_deref() == Some("CrashLoopBackOff") {
-                            panic!(
-                                "device-plugin container '{}' is in CrashLoopBackOff — \
+                    if let Some(waiting) = cs.state.as_ref().and_then(|s| s.waiting.as_ref())
+                        && waiting.reason.as_deref() == Some("CrashLoopBackOff")
+                    {
+                        panic!(
+                            "device-plugin container '{}' is in CrashLoopBackOff — \
                                  device injection likely failed (Allocate() not called)",
-                                cs.name
-                            );
-                        }
+                            cs.name
+                        );
                     }
                 }
             }
@@ -1457,8 +1453,8 @@ async fn e2e_device_plugin_pod_running() {
 #[ignore]
 async fn e2e_device_plugin_registered() {
     use hyper_util::rt::TokioIo;
-    use kubelet_adapters::device_manager::proto::registration_client::RegistrationClient;
     use kubelet_adapters::device_manager::proto::RegisterRequest;
+    use kubelet_adapters::device_manager::proto::registration_client::RegistrationClient;
     use tonic::transport::{Endpoint, Uri};
     use tower::service_fn;
 

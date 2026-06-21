@@ -35,7 +35,7 @@ use crate::memory_manager::MemoryManager;
 use crate::topology_manager::{TopologyHint, TopologyManager};
 use kubelet_core::error::{KubeletError, Result};
 use kubelet_core::pod::{ContainerSpec, PodSpec};
-use kubelet_core::qos::{compute_qos_class, QosClass};
+use kubelet_core::qos::{QosClass, compute_qos_class};
 use kubelet_core::types::PodUID;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

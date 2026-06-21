@@ -17,17 +17,17 @@ limitations under the License.
 //! Integration tests for runtime, networking, storage, and node services.
 
 use chrono::{Duration as ChronoDuration, Utc};
-use kubelet_adapters::cgroup::{shares_to_weight, weight_to_shares, CgroupManager, CgroupPath};
-use kubelet_adapters::cni::{cni_env, CniNetworkPlugin};
+use kubelet_adapters::cgroup::{CgroupManager, CgroupPath, shares_to_weight, weight_to_shares};
+use kubelet_adapters::cni::{CniNetworkPlugin, cni_env};
 use kubelet_adapters::csi::{
-    proto::AccessType as CsiAccessType, CsiVolumeContext, CsiVolumeManager,
+    CsiVolumeContext, CsiVolumeManager, proto::AccessType as CsiAccessType,
 };
-use kubelet_adapters::kube_reporter::{build_node_status_patch, KubeConnectMode, KubeNodeReporter};
+use kubelet_adapters::kube_reporter::{KubeConnectMode, KubeNodeReporter, build_node_status_patch};
 use kubelet_adapters::mock_runtime::MockRuntime;
 use kubelet_adapters::nfd::{FeatureScanner, NodeFeatures};
 use kubelet_adapters::tls::{CertificateRotationManager, CertificateStore};
 use kubelet_app::streaming::{
-    exec_to_frames, FramedMessage, StreamMultiplexer, STREAM_STDERR, STREAM_STDOUT,
+    FramedMessage, STREAM_STDERR, STREAM_STDOUT, StreamMultiplexer, exec_to_frames,
 };
 use kubelet_core::node::NodeStatus;
 use kubelet_core::pod::lifecycle::{PodLifecycleState, PodPhase};
@@ -445,10 +445,12 @@ fn test_cgroup_path_structure_integration() {
     assert!(pod_slice.to_str().unwrap().contains("test_uid_123"));
 
     let container_scope = paths.container_scope(&QosClass::Burstable, &uid, "abc123");
-    assert!(container_scope
-        .to_str()
-        .unwrap()
-        .contains("cri-containerd-abc123"));
+    assert!(
+        container_scope
+            .to_str()
+            .unwrap()
+            .contains("cri-containerd-abc123")
+    );
 }
 
 #[tokio::test]
@@ -703,7 +705,7 @@ fn test_optional_volume_cleared_when_source_deleted() {
 
 #[test]
 fn test_build_dns_config_default_policy_excludes_cluster_dns() {
-    use kubelet_adapters::sandbox_builder::{build_dns_config, NodeDnsConfig};
+    use kubelet_adapters::sandbox_builder::{NodeDnsConfig, build_dns_config};
     use kubelet_core::pod::{DnsConfig, DnsPolicy, PodSpec};
     use kubelet_core::types::{PodRef, PodUID};
 
@@ -746,7 +748,7 @@ fn test_build_dns_config_default_policy_excludes_cluster_dns() {
 fn test_build_dns_config_cluster_first_none_uses_cluster_dns() {
     // When dns_config is None the effective policy is ClusterFirst — pods that
     // don't specify a policy must still get the in-cluster resolver.
-    use kubelet_adapters::sandbox_builder::{build_dns_config, NodeDnsConfig};
+    use kubelet_adapters::sandbox_builder::{NodeDnsConfig, build_dns_config};
     use kubelet_core::pod::PodSpec;
     use kubelet_core::types::{PodRef, PodUID};
 

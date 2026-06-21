@@ -54,7 +54,6 @@ mkdir -p "$ARTIFACT_DIR"
 cd "$KUBEAIR_REPO_PATH"
 
 export KUBECONFIG
-export CARGO_BUILD_JOBS
 
 OVERALL_PASS=0  # 0 = pass, non-zero = fail
 
@@ -75,21 +74,22 @@ run_suite() {
 if [[ "$RUN_UNIT_TESTS" == "1" ]]; then
   step "Unit, conformance, and smoke tests"
 
-  run_suite "lib-tests" \
-    cargo test --workspace --lib --all-features --locked \
-      -j "$CARGO_BUILD_JOBS" -- --test-threads=4
+  run_suite "crate-unit-tests" \
+    bazel test //crates/kubelet-core/src:core_test \
+                //crates/kubelet-adapters/src:adapters_test \
+                //crates/kubelet-app/src:app_test \
+                //crates/kubelet-cri/src:cri_test \
+                //crates/kubelet-ports/src:ports_test \
+                --build_tests_only
 
   run_suite "conformance" \
-    cargo test --test conformance --all-features --locked \
-      -j "$CARGO_BUILD_JOBS"
+    bazel test //tests/conformance:conformance_test
 
   run_suite "smoke" \
-    cargo test --test smoke --all-features --locked \
-      -j "$CARGO_BUILD_JOBS"
+    bazel test //tests/smoke:smoke_test
 
   run_suite "integration" \
-    cargo test --test integration --all-features --locked \
-      -j "$CARGO_BUILD_JOBS"
+    bazel test //tests/integration:all
 fi
 
 # ── Live cluster e2e tests ────────────────────────────────────────────────────
@@ -103,27 +103,22 @@ if [[ "$RUN_E2E_TESTS" == "1" ]]; then
     || die "Cannot reach cluster. Is the cluster running?"
 
   FILTER_ARG=""
-  [[ -n "$TEST_FILTER" ]] && FILTER_ARG="$TEST_FILTER"
+  [[ -n "$TEST_FILTER" ]] && FILTER_ARG="--test_filter=$TEST_FILTER"
 
   run_suite "e2e_cluster_health" \
-    cargo test --test e2e_cluster_health --all-features --locked \
-      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+    bazel test //tests/e2e:cluster_health_test $FILTER_ARG
 
   run_suite "e2e_containerd_status" \
-    cargo test --test e2e_containerd_status --all-features --locked \
-      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+    bazel test //tests/e2e:containerd_api_status_test $FILTER_ARG
 
   run_suite "e2e_kubectl_ops" \
-    cargo test --test e2e_kubectl_ops --all-features --locked \
-      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+    bazel test //tests/e2e:kubectl_ops_test $FILTER_ARG
 
   run_suite "e2e_workload_features" \
-    cargo test --test e2e_workload_features --all-features --locked \
-      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+    bazel test //tests/e2e:workload_features_test $FILTER_ARG
 
   run_suite "e2e_container_cleanup" \
-    cargo test --test e2e_container_cleanup --all-features --locked \
-      -j "$CARGO_BUILD_JOBS" -- --ignored $FILTER_ARG
+    bazel test //tests/e2e:container_cleanup_test $FILTER_ARG
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

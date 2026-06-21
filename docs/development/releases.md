@@ -115,7 +115,7 @@ No manual `git tag` or binary builds are required.
 
 ### Pre-release checklist
 
-- [ ] `just lint` passes with zero warnings
+- [ ] `just verify` passes with zero warnings
 - [ ] `just test` passes (all unit, integration, and conformance suites)
 - [ ] E2E suite passes: 0 failures (`bash hack/e2e/colima-run.sh`)
 - [ ] Dependencies audited: `cargo audit` reports no high/critical advisories
@@ -172,7 +172,7 @@ The table below tracks which KubeAir release targets which Kubernetes cluster ve
 
 | KubeAir Version | Kubernetes Version | k8s-openapi feature | Rust Toolchain | Status |
 | --------------- | ------------------ | ------------------- | -------------- | ------ |
-| `1.33.x`      | 1.33               | `v1_30`           | 1.93.1         | Active |
+| `1.33.x`      | 1.33               | `v1_30`           | 1.96.0         | Active |
 
 > **Note:** `k8s-openapi` version lag is normal — the crate lags slightly behind Kubernetes releases. Use the highest available feature flag that is ≤ the target cluster version.
 

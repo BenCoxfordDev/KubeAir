@@ -639,12 +639,12 @@ impl PodSource for UrlPodSource {
     async fn run(&self, tx: mpsc::Sender<PodUpdate>) -> Result<()> {
         info!(url = %self.url, "Starting URL pod source");
         let mut known: HashMap<String, PodUID> = HashMap::new(); // uid_str → PodUID
-                                                                 // Maps "namespace/name" → committed UID string. Once we commit a UID
-                                                                 // (real from API server or synthetic fallback) we keep using it for the
-                                                                 // lifetime of that pod entry. This prevents UID flip-flop when the API
-                                                                 // server becomes reachable after an initial failure at startup, which
-                                                                 // would otherwise cause sandbox churn. The entry is cleared when the pod
-                                                                 // disappears from the URL endpoint.
+        // Maps "namespace/name" → committed UID string. Once we commit a UID
+        // (real from API server or synthetic fallback) we keep using it for the
+        // lifetime of that pod entry. This prevents UID flip-flop when the API
+        // server becomes reachable after an initial failure at startup, which
+        // would otherwise cause sandbox churn. The entry is cleared when the pod
+        // disappears from the URL endpoint.
         let mut committed_uids: HashMap<String, String> = HashMap::new();
 
         loop {

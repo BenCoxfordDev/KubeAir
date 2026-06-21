@@ -20,8 +20,8 @@ limitations under the License.
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    register_gauge_vec, register_histogram_vec, register_int_counter_vec, register_int_gauge_vec,
-    GaugeVec, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
+    GaugeVec, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, register_gauge_vec,
+    register_histogram_vec, register_int_counter_vec, register_int_gauge_vec,
 };
 
 /// Number of pods currently running on this node.
@@ -121,7 +121,9 @@ pub static STREAMING_SESSION_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
         "kubelet_streaming_session_duration_seconds",
         "Streaming session duration by endpoint and outcome",
         &["endpoint", "outcome"],
-        vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 300.0]
+        vec![
+            0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 300.0
+        ]
     )
     .unwrap()
 });

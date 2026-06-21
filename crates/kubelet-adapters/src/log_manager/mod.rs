@@ -404,10 +404,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mgr = LogManager::new(dir.path(), 10 * 1024 * 1024, 5);
         let log_dir = mgr.container_log_dir("default", "my-pod", "uid-1", "app");
-        assert!(log_dir
-            .to_str()
-            .unwrap()
-            .contains("default_my-pod_uid-1/app"));
+        assert!(
+            log_dir
+                .to_str()
+                .unwrap()
+                .contains("default_my-pod_uid-1/app")
+        );
     }
 
     #[test]

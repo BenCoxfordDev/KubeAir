@@ -1,0 +1,15 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+
+# gazelle:ignore
+rust_test(
+    name = "conformance_test",
+    srcs = ["conformance_test.rs"],
+    edition = "2024",
+    deps = [
+        "//crates/kubelet-adapters/src:lib",
+        "//crates/kubelet-core/src:lib",
+        "@crates//:chrono",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+    ],
+)

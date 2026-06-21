@@ -171,9 +171,7 @@ pub fn compute_pod_phase(
     // and will be restarted — the pod phase must remain Running (not Pending).
     // Phase oscillating Running→Pending→Running during backoff confuses Endpoints
     // controllers and pods that gate on the pod being Running.
-    let any_crash_loop = statuses.iter().any(|s| {
-        matches!(&s.state, ContainerState::Waiting { reason, .. } if reason == "CrashLoopBackOff")
-    });
+    let any_crash_loop = statuses.iter().any(|s| matches!(&s.state, ContainerState::Waiting { reason, .. } if reason == "CrashLoopBackOff"));
     if any_crash_loop {
         return PodPhase::Running;
     }

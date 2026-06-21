@@ -22,9 +22,9 @@ limitations under the License.
 //! Run with:
 //!   cargo bench --bench server_throughput
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use kubelet_adapters::mock_runtime::MockRuntime;
-use kubelet_app::server::{build_router, ServerState};
+use kubelet_app::server::{ServerState, build_router};
 use kubelet_core::pod::manager::PodManager;
 use kubelet_core::pod::{
     ContainerSpec, ImagePullPolicy, PodSpec, ResourceRequirements, RestartPolicy,
