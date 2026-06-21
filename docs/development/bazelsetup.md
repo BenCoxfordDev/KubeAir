@@ -53,27 +53,21 @@ bazel query //...
 
 ### Build a Single Crate
 
-```bash
-bazel build //crates/kubelet-core:kubelet_core
-```
+    bazel build //crates/kubelet-core:lib
 
 ### Run Tests
 
-```bash
-# Test a specific crate
-bazel test //crates/kubelet-core:kubelet_core_test
+    # Run all tests
+    bazel test //...
 
-# Run all tests
-bazel test //...
-```
+    # Run a specific suite
+    bazel test //tests/integration:pod_lifecycle_test
 
 ### Run the Binary
 
 Once BUILD files are generated, the root binary can be run:
 
-```bash
-bazel run //crates/kubelet-app:kubelet
-```
+    bazel run //:kubelet
 
 ## Dependency Management
 
