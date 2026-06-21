@@ -41,11 +41,20 @@ func (p *ImportParser) ExtractCrateNames(source string) map[string]bool {
 	source = p.stripComments(source)
 
 	lines := strings.Split(source, "\n")
+	insideBraceImport := false
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
+		trimmedLine := strings.TrimSpace(line)
+
+		// Track if we're inside a multiline brace import
+		if strings.Contains(trimmedLine, "use ") && strings.Contains(trimmedLine, "{") {
+			insideBraceImport = true
+		}
+		if insideBraceImport && strings.Contains(trimmedLine, "}") {
+			insideBraceImport = false
+		}
 
 		// Simple use statement: use foo::bar;
-		if matches := p.simpleUse.FindStringSubmatch(line); matches != nil {
+		if matches := p.simpleUse.FindStringSubmatch(trimmedLine); matches != nil {
 			crate := p.extractRootCrate(matches[1])
 			if isValidCrateName(crate) {
 				crates[crate] = true
@@ -53,7 +62,7 @@ func (p *ImportParser) ExtractCrateNames(source string) map[string]bool {
 		}
 
 		// Brace use: use foo::{ bar, baz };
-		if matches := p.braceUse.FindStringSubmatch(line); matches != nil {
+		if matches := p.braceUse.FindStringSubmatch(trimmedLine); matches != nil {
 			crate := p.extractRootCrate(matches[1])
 			if isValidCrateName(crate) {
 				crates[crate] = true
@@ -61,7 +70,7 @@ func (p *ImportParser) ExtractCrateNames(source string) map[string]bool {
 		}
 
 		// Aliased use: use foo as bar;
-		if matches := p.aliasedUse.FindStringSubmatch(line); matches != nil {
+		if matches := p.aliasedUse.FindStringSubmatch(trimmedLine); matches != nil {
 			crate := p.extractRootCrate(matches[1])
 			if isValidCrateName(crate) {
 				crates[crate] = true
@@ -69,7 +78,7 @@ func (p *ImportParser) ExtractCrateNames(source string) map[string]bool {
 		}
 
 		// Wildcard use: use foo::*;
-		if matches := p.wildcardUse.FindStringSubmatch(line); matches != nil {
+		if matches := p.wildcardUse.FindStringSubmatch(trimmedLine); matches != nil {
 			crate := p.extractRootCrate(matches[1])
 			if isValidCrateName(crate) {
 				crates[crate] = true
@@ -79,9 +88,12 @@ func (p *ImportParser) ExtractCrateNames(source string) map[string]bool {
 		// Bare path usages: tokio::runtime, anyhow::Result, etc.
 		// Use a non-word-or-colon prefix to avoid matching submodule names
 		// inside a longer path (e.g. `manager` in `kubelet_app::manager::X`).
-		for _, m := range p.barePath.FindAllStringSubmatch(line, -1) {
-			if isValidCrateName(m[1]) {
-				crates[m[1]] = true
+		// Skip bare path matching if we're inside a multiline brace import.
+		if !insideBraceImport {
+			for _, m := range p.barePath.FindAllStringSubmatch(trimmedLine, -1) {
+				if isValidCrateName(m[1]) {
+					crates[m[1]] = true
+				}
 			}
 		}
 	}
@@ -95,8 +107,8 @@ func (p *ImportParser) stripComments(source string) string {
 	lineCommentRe := regexp.MustCompile(`//.*$`)
 	source = lineCommentRe.ReplaceAllString(source, "")
 
-	// Remove block comments (/* ... */)
-	blockCommentRe := regexp.MustCompile(`/\*.*?\*/`)
+	// Remove block comments (/* ... */) - use (?s) flag to match across newlines
+	blockCommentRe := regexp.MustCompile(`(?s)/\*.*?\*/`)
 	source = blockCommentRe.ReplaceAllString(source, "")
 
 	return source

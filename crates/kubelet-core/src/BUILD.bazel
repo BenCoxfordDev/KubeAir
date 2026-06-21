@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 # gazelle:ignore
 # gazelle:exclude config
@@ -54,5 +54,14 @@ rust_library(
         "@crates//:tokio",
         "@crates//:tracing",
         "@crates//:uuid",
+    ],
+)
+
+rust_test(
+    name = "core_test",
+    crate = ":lib",
+    edition = "2024",
+    deps = [
+        "@crates//:rstest",
     ],
 )

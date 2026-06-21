@@ -74,8 +74,13 @@ run_suite() {
 if [[ "$RUN_UNIT_TESTS" == "1" ]]; then
   step "Unit, conformance, and smoke tests"
 
-  run_suite "lib-tests" \
-    bazel test //crates:all --build_tests_only
+  run_suite "crate-unit-tests" \
+    bazel test //crates/kubelet-core/src:core_test \
+                //crates/kubelet-adapters/src:adapters_test \
+                //crates/kubelet-app/src:app_test \
+                //crates/kubelet-cri/src:cri_test \
+                //crates/kubelet-ports/src:ports_test \
+                --build_tests_only
 
   run_suite "conformance" \
     bazel test //tests/conformance:conformance_test
