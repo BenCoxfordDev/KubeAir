@@ -1157,19 +1157,19 @@ fn parse_resource_requirements(res: Option<&serde_json::Value>) -> ResourceRequi
     };
     if let Some(requests) = res.get("requests").and_then(|v| v.as_object()) {
         for (k, v) in requests {
-            if let Some(s) = v.as_str() {
-                if let Some(q) = parse_k8s_quantity_for_key(k, s) {
-                    reqs.requests.insert(k.clone(), q);
-                }
+            if let Some(s) = v.as_str()
+                && let Some(q) = parse_k8s_quantity_for_key(k, s)
+            {
+                reqs.requests.insert(k.clone(), q);
             }
         }
     }
     if let Some(limits) = res.get("limits").and_then(|v| v.as_object()) {
         for (k, v) in limits {
-            if let Some(s) = v.as_str() {
-                if let Some(q) = parse_k8s_quantity_for_key(k, s) {
-                    reqs.limits.insert(k.clone(), q);
-                }
+            if let Some(s) = v.as_str()
+                && let Some(q) = parse_k8s_quantity_for_key(k, s)
+            {
+                reqs.limits.insert(k.clone(), q);
             }
         }
     }
@@ -1197,11 +1197,7 @@ trait NodeStatusExt {
 
 impl NodeStatusExt for NodeStatus {
     fn phase_str(&self) -> &str {
-        if self.is_ready() {
-            "Ready"
-        } else {
-            "NotReady"
-        }
+        if self.is_ready() { "Ready" } else { "NotReady" }
     }
 }
 

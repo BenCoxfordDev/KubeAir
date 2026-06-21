@@ -3,8 +3,6 @@
 This file provides context for AI coding agents (Claude, Copilot, etc.) working in this repository.
 It covers build/test commands, project conventions, architecture, and links to key documents.
 
----
-
 ## Key Documents
 
 | Document | Purpose |
@@ -16,26 +14,19 @@ It covers build/test commands, project conventions, architecture, and links to k
 | [docs/development/cheatsheet.md](docs/development/cheatsheet.md) | Quick command reference |
 | [docs/development/releases.md](docs/development/releases.md) | Release process |
 
----
-
 ## Rust Toolchain
 
 The toolchain is pinned in `rust-toolchain.toml`. `rustup` installs it automatically on first use.
 
 ```
-channel = "1.93.1"
+channel = "1.96.0"
 ```
-
----
 
 ## Build Commands
 
 ```bash
-# Debug build (native)
-cargo build
-
-# Release build (native)
-cargo build --release
+# Native build to machine
+just build
 
 # Cross-compile for Linux amd64 (requires cargo-zigbuild)
 just build amd64
@@ -44,28 +35,12 @@ just build amd64
 just build arm64
 ```
 
----
-
 ## Testing
 
-KubeAir has four test layers. Always run the relevant layers before opening a PR.
-
-### Unit tests
-
-Inline `#[test]` blocks inside each crate's `src/`. Run with:
+KubeAir has five test layers - unit, integration, conformance, smoke, and e2e. Always run the relevant layers before opening a PR.
 
 ```bash
-cargo test --workspace --all-targets --all-features
-```
-
-### Integration tests
-
-Cross-crate behaviour and lifecycle flows in `tests/integration/`:
-
-```bash
-cargo test --test integration
-cargo test --test integration_runtime_network_storage
-cargo test --test integration_resource_orchestration
+just test
 ```
 
 ### Conformance tests
@@ -73,15 +48,13 @@ cargo test --test integration_resource_orchestration
 Kubernetes spec compliance in `tests/conformance/`. **Run before any change touching pod lifecycle, container state, or the kubelet API:**
 
 ```bash
-just conformance-smoke
-# or equivalently:
-cargo test -p kubelet --test conformance -- --nocapture
+just conformance
 ```
 
 ### Smoke tests
 
 ```bash
-cargo test --test smoke
+just smoke
 ```
 
 ### E2E tests
@@ -96,61 +69,28 @@ bash hack/e2e/colima-run.sh
 cargo test --test workload_features_test -- --ignored e2e_configmap_env_injection --nocapture
 ```
 
-### Full suite (what `just test` runs)
-
-```bash
-just test
-# expands to:
-cargo test --workspace --all-targets --all-features
-cargo test -p kubelet --test conformance -- --nocapture
-```
-
-### Real runtime smoke (CRI + CNI, requires containerd)
-
-```bash
-just real-runtime-smoke
-```
-
----
-
 ## Linting and Formatting
 
 CI fails on any clippy warning or formatting deviation. Always run before pushing:
 
 ```bash
 # Check lint and format
-just lint
-
-# Auto-fix clippy warnings
-just auto-fix
+just verify
 
 # Format code
 just fmt
 ```
 
----
-
 ## Benchmarks
 
 ```bash
-# Run all benchmarks
-cargo bench
-
-# Specific suites
-cargo bench --bench pod_operations
-cargo bench --bench memory_profile
-cargo bench --bench server_throughput
-
-# Save a baseline for regression comparisons
-cargo bench -- --save-baseline main
-
-# Compare against baseline
-cargo bench -- --baseline main
+# run individual benchmark tests
+bazel run benches:pod_operations
+bazel run benches:pod_operations 
+bazel run benches:pod_operations 
 ```
 
 HTML reports are written to `target/criterion/`.
-
----
 
 ## Architecture Overview
 
@@ -165,8 +105,6 @@ src/main.rs
 ```
 
 See [docs/development/development.md](docs/development/development.md) for the full diagram and Go→Rust package mapping.
-
----
 
 ## Crate Map
 
@@ -186,17 +124,15 @@ See [docs/development/development.md](docs/development/development.md) for the f
 - **No panics in production** — if a condition is genuinely impossible, add a comment explaining why before using `expect`.
 - **No unnecessary allocations** — KubeAir's value is low memory/CPU. Prefer `Arc` sharing over cloning large structures.
 - **`unsafe`** — requires a comment explaining the invariant being upheld. Minimise scope.
-- **Clippy clean** — `just lint` runs `cargo clippy -- -D warnings`. Zero warnings required.
+- **Clippy clean** — `just verify` runs `cargo clippy -- -D warnings`. Zero warnings required.
 - **Formatted** — all code must pass `cargo fmt` before merging.
-
----
 
 ## Contributing Workflow
 
 1. Open an issue before non-trivial changes.
 2. Fork, create a branch from `main`.
 3. Write tests: unit tests always; regression tests for bug fixes.
-4. `just lint && just test` must pass locally.
+4. `just verify && just test` must pass locally.
 5. Open a PR against `main` — one logical change per PR.
 6. Squash commits; PR description feeds auto-generated release notes.
 
@@ -207,6 +143,6 @@ Full details: [CONTRIBUTING.md](CONTRIBUTING.md)
 ## Security
 
 Do **not** open public GitHub issues for vulnerabilities. Report privately via
-[GitHub Security Advisories](https://github.com/bencoxford/kubeair/security/advisories/new).
+[GitHub Security Advisories](https://github.com/BenCoxfordDev/kubeair/security/advisories/new).
 
 `cargo audit` is run before every release. Full policy: [SECURITY.md](SECURITY.md)

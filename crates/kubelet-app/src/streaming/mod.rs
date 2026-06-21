@@ -28,8 +28,8 @@ limitations under the License.
 
 use axum::{
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
         Query, Request, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -42,7 +42,7 @@ use k8s_openapi::api::authentication::v1::{TokenReview, TokenReviewSpec};
 use k8s_openapi::api::authorization::v1::{
     ResourceAttributes, SubjectAccessReview, SubjectAccessReviewSpec,
 };
-use kube::{api::PostParams, Api, Client};
+use kube::{Api, Client, api::PostParams};
 use kubelet_adapters::log_manager::{LogEntry, LogManager};
 use kubelet_core::container::ContainerID;
 use kubelet_core::pod::manager::PodManager;
@@ -55,7 +55,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, OnceCell};
+use tokio::sync::{OnceCell, mpsc};
 use tracing::{debug, info, warn};
 
 use crate::metrics::{
@@ -1051,32 +1051,32 @@ async fn send_exec_result_spdy<W>(
 ) where
     W: tokio::io::AsyncWrite + Unpin,
 {
-    if let Some(stdout_stream_id) = stream_map.get(&SpdyStreamKind::Stdout) {
-        if !result.stdout.is_empty() {
-            let _ = write_spdy_wire_frame(
-                writer,
-                SpdyWireFrame::Data {
-                    stream_id: *stdout_stream_id,
-                    flags: 0x01,
-                    payload: result.stdout,
-                },
-            )
-            .await;
-        }
+    if let Some(stdout_stream_id) = stream_map.get(&SpdyStreamKind::Stdout)
+        && !result.stdout.is_empty()
+    {
+        let _ = write_spdy_wire_frame(
+            writer,
+            SpdyWireFrame::Data {
+                stream_id: *stdout_stream_id,
+                flags: 0x01,
+                payload: result.stdout,
+            },
+        )
+        .await;
     }
 
-    if let Some(stderr_stream_id) = stream_map.get(&SpdyStreamKind::Stderr) {
-        if !result.stderr.is_empty() {
-            let _ = write_spdy_wire_frame(
-                writer,
-                SpdyWireFrame::Data {
-                    stream_id: *stderr_stream_id,
-                    flags: 0x01,
-                    payload: result.stderr,
-                },
-            )
-            .await;
-        }
+    if let Some(stderr_stream_id) = stream_map.get(&SpdyStreamKind::Stderr)
+        && !result.stderr.is_empty()
+    {
+        let _ = write_spdy_wire_frame(
+            writer,
+            SpdyWireFrame::Data {
+                stream_id: *stderr_stream_id,
+                flags: 0x01,
+                payload: result.stderr,
+            },
+        )
+        .await;
     }
 
     if let Some(error_stream_id) = stream_map.get(&SpdyStreamKind::Error) {
@@ -1256,22 +1256,18 @@ async fn run_spdy_exec_like_session(
                 if let (Some(resize_stream_id), Some(container_id)) = (
                     stream_map.get(&SpdyStreamKind::Resize),
                     runtime_container_id.as_ref(),
-                ) {
-                    if stream_id == *resize_stream_id {
-                        if let Some((height, width)) = parse_resize_event(&payload) {
-                            if let Err(e) = state
-                                .runtime
-                                .update_container_tty_size(container_id, width, height)
-                                .await
-                            {
-                                warn!(
-                                    error = %e,
-                                    pod = %pod_name,
-                                    "failed to apply SPDY TTY resize"
-                                );
-                            }
-                        }
-                    }
+                ) && stream_id == *resize_stream_id
+                    && let Some((height, width)) = parse_resize_event(&payload)
+                    && let Err(e) = state
+                        .runtime
+                        .update_container_tty_size(container_id, width, height)
+                        .await
+                {
+                    warn!(
+                        error = %e,
+                        pod = %pod_name,
+                        "failed to apply SPDY TTY resize"
+                    );
                 }
             }
             SpdyWireFrame::SynReply { .. } => {
@@ -1616,7 +1612,7 @@ pub async fn spdy_port_forward_handler(
             match frame {
                 SpdyWireFrame::SynStream { stream_id, raw_nv } => {
                     let _headers = HashMap::<String, String>::new(); // portforward: headers decoded in client
-                                                                     // Decode SYN_STREAM headers using the SPDY preset dictionary.
+                    // Decode SYN_STREAM headers using the SPDY preset dictionary.
                     let pf_decoded: HashMap<String, String> = {
                         let mut dec = Decompress::new(true);
                         let mut plain = vec![0u8; raw_nv.len() * 8 + 256];
@@ -2237,21 +2233,20 @@ async fn authorize_stream_request(
         ));
     }
 
-    if !always_allow {
-        if let Err(e) =
+    if !always_allow
+        && let Err(e) =
             subject_access_review(&client, &identity, namespace, pod_name, subresource, verb).await
-        {
-            streaming_record_error(subresource, "rbac_denied");
-            audit_stream_event(
-                subresource,
-                &identity.username,
-                namespace,
-                pod_name,
-                container,
-                "denied",
-            );
-            return Err(k8s_error_response(StatusCode::FORBIDDEN, "Forbidden", &e));
-        }
+    {
+        streaming_record_error(subresource, "rbac_denied");
+        audit_stream_event(
+            subresource,
+            &identity.username,
+            namespace,
+            pod_name,
+            container,
+            "denied",
+        );
+        return Err(k8s_error_response(StatusCode::FORBIDDEN, "Forbidden", &e));
     }
 
     Ok(identity)
@@ -2475,22 +2470,18 @@ async fn handle_attach_ws(
         let Ok(Some(Ok(msg))) = maybe_msg else {
             break;
         };
-        if let Message::Binary(payload) = msg {
-            if let Some(frame) = FramedMessage::decode(&payload) {
-                if frame.stream_id == STREAM_RESIZE {
-                    if let Some((height, width)) = parse_resize_event(&frame.payload) {
-                        if let Err(e) = state
-                            .runtime
-                            .update_container_tty_size(&runtime_container_id, width, height)
-                            .await
-                        {
-                            warn!(error = %e, pod = %pod_name, "failed to apply initial TTY resize");
-                        }
-                    }
-                }
-                // STREAM_CLOSE (255) frames from v5 clients are silently ignored here.
-            }
+        if let Message::Binary(payload) = msg
+            && let Some(frame) = FramedMessage::decode(&payload)
+            && frame.stream_id == STREAM_RESIZE
+            && let Some((height, width)) = parse_resize_event(&frame.payload)
+            && let Err(e) = state
+                .runtime
+                .update_container_tty_size(&runtime_container_id, width, height)
+                .await
+        {
+            warn!(error = %e, pod = %pod_name, "failed to apply initial TTY resize");
         }
+        // STREAM_CLOSE (255) frames from v5 clients are silently ignored here.
     }
 
     match run_attach_core(&state, &ns, &pod_name, &query).await {
@@ -2540,7 +2531,7 @@ pub async fn log_handler(
     cert_cn_ext: Option<axum::Extension<crate::tls_server::ClientCertCN>>,
 ) -> Response {
     let request_started = Instant::now();
-    let cert_cn: Option<String> = cert_cn_ext.map(|e| e.0 .0.clone());
+    let cert_cn: Option<String> = cert_cn_ext.map(|e| e.0.0.clone());
     let auth = match authorize_stream_request(
         &headers,
         &ns,
@@ -2622,7 +2613,7 @@ pub async fn log_websocket_handler(
     cert_cn_ext: Option<axum::Extension<crate::tls_server::ClientCertCN>>,
 ) -> Response {
     let request_started = Instant::now();
-    let cert_cn: Option<String> = cert_cn_ext.map(|e| e.0 .0.clone());
+    let cert_cn: Option<String> = cert_cn_ext.map(|e| e.0.0.clone());
     let auth = match authorize_stream_request(
         &headers,
         &ns,
@@ -2795,17 +2786,17 @@ async fn collect_logs_body(
     // If the container has never produced any log files and is currently
     // Waiting (e.g. ErrImagePull, ContainerCreating), return a descriptive
     // error immediately rather than silently returning empty output.
-    if all_log_files.is_empty() {
-        if let Some(reason) = &waiting_reason {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "container '{}' in pod '{}/{}' is waiting: {}",
-                    effective_container, ns, pod_name, reason
-                ),
-                "container_not_started",
-            ));
-        }
+    if all_log_files.is_empty()
+        && let Some(reason) = &waiting_reason
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "container '{}' in pod '{}/{}' is waiting: {}",
+                effective_container, ns, pod_name, reason
+            ),
+            "container_not_started",
+        ));
     }
 
     // Read log entries. If none are found on the first attempt it may be a
@@ -2914,7 +2905,7 @@ pub async fn port_forward_handler(
     State(_state): State<StreamState>,
     cert_cn_ext: Option<axum::Extension<crate::tls_server::ClientCertCN>>,
 ) -> Response {
-    let cert_cn = cert_cn_ext.map(|e| e.0 .0.clone());
+    let cert_cn = cert_cn_ext.map(|e| e.0.0.clone());
     let auth = match authorize_stream_request(
         &headers,
         &ns,
@@ -3069,15 +3060,14 @@ async fn handle_port_forward_ws(
             Some(msg) = ws_rx.next() => {
                 match msg {
                     Ok(Message::Binary(data)) => {
-                        if let Some(frame) = FramedMessage::decode(&data) {
-                            if let Some(writer) = channel_writers.get_mut(&frame.stream_id) {
+                        if let Some(frame) = FramedMessage::decode(&data)
+                            && let Some(writer) = channel_writers.get_mut(&frame.stream_id) {
                                 streaming_record_bytes("portforward", "in", frame.payload.len());
                                 if writer.write_all(&frame.payload).await.is_err() {
                                     streaming_record_error("portforward", "tcp_write");
                                     break;
                                 }
                             }
-                        }
                     }
                     Ok(Message::Close(_)) => break,
                     Ok(_) => {}
@@ -3174,17 +3164,16 @@ async fn find_container_id_async(
 async fn resolve_pod_ip(state: &StreamState, pod_uid: &str) -> Option<String> {
     let sandboxes = state.runtime.list_pod_sandboxes().await.ok()?;
     for sb in sandboxes.into_iter().filter(|sb| sb.pod_uid == pod_uid) {
-        if let Some(net) = &sb.network {
-            if !net.ip.is_empty() {
-                return Some(net.ip.clone());
-            }
+        if let Some(net) = &sb.network
+            && !net.ip.is_empty()
+        {
+            return Some(net.ip.clone());
         }
-        if let Ok(Some(status)) = state.runtime.pod_sandbox_status(&sb.id).await {
-            if let Some(net) = status.network {
-                if !net.ip.is_empty() {
-                    return Some(net.ip);
-                }
-            }
+        if let Ok(Some(status)) = state.runtime.pod_sandbox_status(&sb.id).await
+            && let Some(net) = status.network
+            && !net.ip.is_empty()
+        {
+            return Some(net.ip);
         }
     }
     None

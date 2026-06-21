@@ -40,36 +40,23 @@ jobs:
     needs: [check-changes]
     if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
-    env:
-      CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Rust toolchain is preinstalled
-        shell: bash
-        run: |
-          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
-          command -v rustc
-          command -v cargo
-          rustc --version
-          cargo --version
-
-      - name: Install protoc
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-          protoc --version
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.9.1
         with:
-          shared-key: "rust-bench"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          bazelisk-cache: true
+          disk-cache: kubeair
+          repository-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up just
+        uses: extractions/setup-just@v2
 
       - name: Benchmark
-        run: cargo bench --workspace --all-features --locked 2>&1 | tee benchmark.log
+        run: just bench 2>&1 | tee benchmark.log
 
       - name: Parse and Display Benchmark Results
         if: always()
@@ -87,10 +74,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Extract criterion results if available
-          if [ -d target/criterion ]; then
+          if find . -path '*/criterion/*/raw.json' -quit 2>/dev/null; then
             echo "## Criterion Benchmark Summary" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            find target/criterion -name "raw.json" -exec echo "Found criterion output" \; | head -1 >> $GITHUB_STEP_SUMMARY
+            find . -path '*/criterion/*/raw.json' -exec echo "Found criterion output" \; | head -1 >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY

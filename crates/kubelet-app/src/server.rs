@@ -23,11 +23,11 @@ limitations under the License.
 //! using the `v4.channel.k8s.io` subprotocol (modern kubectl >= 1.29).
 
 use axum::{
+    Json, Router,
     extract::{Query, Request, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{any, get},
-    Json, Router,
 };
 use serde::Deserialize;
 use std::net::SocketAddr;
@@ -36,13 +36,13 @@ use tokio::net::TcpListener;
 use tracing::{debug, info};
 
 use crate::metrics::{
-    gather_metrics, record_container_metrics, ContainerMetricLabels, ContainerMetricValues,
-    RUNNING_CONTAINER_COUNT, RUNNING_POD_COUNT,
+    ContainerMetricLabels, ContainerMetricValues, RUNNING_CONTAINER_COUNT, RUNNING_POD_COUNT,
+    gather_metrics, record_container_metrics,
 };
 use crate::streaming::{
-    attach_handler_inner, exec_handler_inner, log_handler, log_websocket_handler, parse_exec_query,
-    port_forward_handler, spdy_attach_handler_inner, spdy_exec_handler_inner,
-    spdy_port_forward_handler, LogQuery, PortForwardQuery, StreamState,
+    LogQuery, PortForwardQuery, StreamState, attach_handler_inner, exec_handler_inner, log_handler,
+    log_websocket_handler, parse_exec_query, port_forward_handler, spdy_attach_handler_inner,
+    spdy_exec_handler_inner, spdy_port_forward_handler,
 };
 use kubelet_core::container::ContainerID;
 use kubelet_core::pod::manager::PodManager;

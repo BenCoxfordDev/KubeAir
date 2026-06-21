@@ -23,9 +23,9 @@ limitations under the License.
 //!   cargo bench --bench pod_operations -- --save-baseline main
 //!   cargo bench --bench pod_operations -- --baseline main   # compare
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use kubelet_core::config::KubeletConfig;
-use kubelet_core::pod::lifecycle::{compute_pod_phase, ContainerState, ContainerStatus};
+use kubelet_core::pod::lifecycle::{ContainerState, ContainerStatus, compute_pod_phase};
 use kubelet_core::pod::manager::PodManager;
 use kubelet_core::pod::status::PodStatusManager;
 use kubelet_core::pod::sync::validate_pod;

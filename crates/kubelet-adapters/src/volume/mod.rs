@@ -21,7 +21,7 @@ pub mod projected;
 pub mod secret;
 pub mod service_account;
 
-use crate::csi::{proto, CsiVolumeContext, CsiVolumeManager};
+use crate::csi::{CsiVolumeContext, CsiVolumeManager, proto};
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{PersistentVolume, PersistentVolumeClaim};
 use kubelet_core::error::{KubeletError, Result};
@@ -117,19 +117,19 @@ impl LocalVolumeManager {
                 }
             }
             Some("DirectoryOrCreate") => {
-                if !host_path.exists() {
-                    if let Err(e) = tokio::fs::create_dir_all(&host_path).await {
-                        // Mirror Go kubelet behaviour: treat mkdir failure as non-fatal.
-                        // On nodes with a read-only root filesystem (e.g. squashfs with
-                        // selective overlays), the directory may not be creatable but the
-                        // mount can still succeed if the container runtime tolerates it,
-                        // or the workload creates the path itself.  Log and continue.
-                        debug!(
-                            path = %host_path.display(),
-                            error = %e,
-                            "DirectoryOrCreate: could not create host path directory (non-fatal)"
-                        );
-                    }
+                if !host_path.exists()
+                    && let Err(e) = tokio::fs::create_dir_all(&host_path).await
+                {
+                    // Mirror Go kubelet behaviour: treat mkdir failure as non-fatal.
+                    // On nodes with a read-only root filesystem (e.g. squashfs with
+                    // selective overlays), the directory may not be creatable but the
+                    // mount can still succeed if the container runtime tolerates it,
+                    // or the workload creates the path itself.  Log and continue.
+                    debug!(
+                        path = %host_path.display(),
+                        error = %e,
+                        "DirectoryOrCreate: could not create host path directory (non-fatal)"
+                    );
                 }
                 if host_path.exists() && !host_path.is_dir() {
                     return Err(KubeletError::VolumeMount(format!(
@@ -359,10 +359,11 @@ impl CompositeVolumeManager {
         // - csi://<driver>/<volume-id>
         // - <claim-name> with KUBELET_CSI_DEFAULT_DRIVER set
         if let Some(rest) = claim_name.strip_prefix("csi://") {
-            if let Some((driver, volume_id)) = rest.split_once('/') {
-                if !driver.is_empty() && !volume_id.is_empty() {
-                    return Ok((driver.to_string(), volume_id.to_string()));
-                }
+            if let Some((driver, volume_id)) = rest.split_once('/')
+                && !driver.is_empty()
+                && !volume_id.is_empty()
+            {
+                return Ok((driver.to_string(), volume_id.to_string()));
             }
             return Err(KubeletError::VolumeMount(format!(
                 "invalid CSI claim name '{}': expected csi://<driver>/<volume-id>",
@@ -532,10 +533,10 @@ impl VolumeManager for CompositeVolumeManager {
                     let pos = vols.iter().position(|v| v.volume_name == req.volume_name)?;
                     Some(vols.remove(pos))
                 });
-                if let Some(vols) = by_pod.get(&req.pod_uid) {
-                    if vols.is_empty() {
-                        by_pod.remove(&req.pod_uid);
-                    }
+                if let Some(vols) = by_pod.get(&req.pod_uid)
+                    && vols.is_empty()
+                {
+                    by_pod.remove(&req.pod_uid);
                 }
                 maybe
             };

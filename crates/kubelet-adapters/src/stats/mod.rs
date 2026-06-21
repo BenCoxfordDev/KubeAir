@@ -172,7 +172,7 @@ impl CgroupStatsReader {
             }
         }
         let cumulative_ns = usage_usec * 1000; // µs -> ns
-                                               // Instantaneous rate: we'd need two samples; return 0 for now (needs sampling loop).
+        // Instantaneous rate: we'd need two samples; return 0 for now (needs sampling loop).
         (0, cumulative_ns)
     }
 
@@ -324,14 +324,13 @@ pub fn disk_pressure(fs_path: &str, available_threshold_percent: f64) -> bool {
 pub fn memory_pressure(available_threshold_bytes: u64) -> bool {
     let content = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
     for line in content.lines() {
-        if line.starts_with("MemAvailable:") {
-            if let Some(kb) = line
+        if line.starts_with("MemAvailable:")
+            && let Some(kb) = line
                 .split_whitespace()
                 .nth(1)
                 .and_then(|v| v.parse::<u64>().ok())
-            {
-                return kb * 1024 < available_threshold_bytes;
-            }
+        {
+            return kb * 1024 < available_threshold_bytes;
         }
     }
     false

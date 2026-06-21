@@ -179,7 +179,7 @@ impl ServiceAccountTokenManager {
 
     /// Generate a minimal JWT placeholder for standalone operation.
     fn generate_placeholder_token(&self, sa: &str, namespace: &str) -> String {
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
         let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"none","typ":"JWT"}"#);
         let payload = URL_SAFE_NO_PAD.encode(format!(
             r#"{{"sub":"system:serviceaccount:{}:{}","iss":"kubernetes/serviceaccount","exp":{}}}"#,

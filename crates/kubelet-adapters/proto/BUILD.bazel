@@ -1,0 +1,8 @@
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+proto_library(
+    name = "device_plugin_proto",
+    srcs = ["device_plugin.proto"],
+    visibility = ["//crates/kubelet-adapters:__subpackages__"],
+)
+

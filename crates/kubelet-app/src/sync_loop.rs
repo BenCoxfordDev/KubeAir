@@ -19,9 +19,9 @@ limitations under the License.
 //! Mirrors pkg/kubelet/kubelet.go syncLoop / syncLoopIteration.
 
 use kubelet_core::error::Result;
-use kubelet_core::pod::manager::PodManager;
-use kubelet_core::pod::sync::{determine_sync_action, validate_pod, SyncAction};
 use kubelet_core::pod::PodUpdate;
+use kubelet_core::pod::manager::PodManager;
+use kubelet_core::pod::sync::{SyncAction, determine_sync_action, validate_pod};
 use kubelet_ports::driven::container_runtime::ContainerRuntime;
 use kubelet_ports::driven::node_reporter::NodeReporter;
 use std::sync::Arc;

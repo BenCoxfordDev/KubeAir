@@ -1,0 +1,18 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+
+rust_test(
+    name = "smoke_test",
+    srcs = ["smoke_test.rs"],
+    deps = [
+        "//crates/kubelet-core/src:lib",
+        "//crates/kubelet-adapters/src:lib",
+        "//crates/kubelet-app/src:lib",
+        "//crates/kubelet-ports/src:lib",
+        "//crates/kubelet-cri/src:lib",
+        "@crates//:tokio",
+        "@crates//:reqwest",
+        "@crates//:serde_json",
+        "@crates//:axum",
+        "@crates//:serde",
+    ],
+)

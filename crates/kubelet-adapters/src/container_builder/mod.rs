@@ -218,12 +218,12 @@ pub fn resolve_configmap_env(
 
     // EnvFrom ConfigMap sources.
     for env_from in &container.env_from {
-        if let Some(cm_ref) = &env_from.config_map_ref {
-            if let Some(cm_data) = configmaps.get(&cm_ref.name) {
-                let prefix = env_from.prefix.as_deref().unwrap_or("");
-                for (k, v) in cm_data {
-                    resolved.push((format!("{}{}", prefix, k), v.clone()));
-                }
+        if let Some(cm_ref) = &env_from.config_map_ref
+            && let Some(cm_data) = configmaps.get(&cm_ref.name)
+        {
+            let prefix = env_from.prefix.as_deref().unwrap_or("");
+            for (k, v) in cm_data {
+                resolved.push((format!("{}{}", prefix, k), v.clone()));
             }
         }
     }
@@ -235,13 +235,12 @@ pub fn resolve_configmap_env(
             key,
             optional,
         }) = &env.value_from
+            && let Some(cm_data) = configmaps.get(name)
         {
-            if let Some(cm_data) = configmaps.get(name) {
-                if let Some(v) = cm_data.get(key) {
-                    resolved.push((env.name.clone(), v.clone()));
-                } else if !optional {
-                    tracing::warn!(configmap = %name, key = %key, "Required ConfigMap key missing");
-                }
+            if let Some(v) = cm_data.get(key) {
+                resolved.push((env.name.clone(), v.clone()));
+            } else if !optional {
+                tracing::warn!(configmap = %name, key = %key, "Required ConfigMap key missing");
             }
         }
     }
@@ -258,13 +257,13 @@ pub fn resolve_secret_env(
 
     // EnvFrom Secret sources.
     for env_from in &container.env_from {
-        if let Some(secret_ref) = &env_from.secret_ref {
-            if let Some(secret_data) = secrets.get(&secret_ref.name) {
-                let prefix = env_from.prefix.as_deref().unwrap_or("");
-                for (k, v) in secret_data {
-                    if let Ok(s) = String::from_utf8(v.clone()) {
-                        resolved.push((format!("{}{}", prefix, k), s));
-                    }
+        if let Some(secret_ref) = &env_from.secret_ref
+            && let Some(secret_data) = secrets.get(&secret_ref.name)
+        {
+            let prefix = env_from.prefix.as_deref().unwrap_or("");
+            for (k, v) in secret_data {
+                if let Ok(s) = String::from_utf8(v.clone()) {
+                    resolved.push((format!("{}{}", prefix, k), s));
                 }
             }
         }
@@ -277,15 +276,14 @@ pub fn resolve_secret_env(
             key,
             optional,
         }) = &env.value_from
+            && let Some(secret_data) = secrets.get(name)
         {
-            if let Some(secret_data) = secrets.get(name) {
-                if let Some(v) = secret_data.get(key) {
-                    if let Ok(s) = String::from_utf8(v.clone()) {
-                        resolved.push((env.name.clone(), s));
-                    }
-                } else if !optional {
-                    tracing::warn!(secret = %name, key = %key, "Required Secret key missing");
+            if let Some(v) = secret_data.get(key) {
+                if let Ok(s) = String::from_utf8(v.clone()) {
+                    resolved.push((env.name.clone(), s));
                 }
+            } else if !optional {
+                tracing::warn!(secret = %name, key = %key, "Required Secret key missing");
             }
         }
     }

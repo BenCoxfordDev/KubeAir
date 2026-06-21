@@ -82,22 +82,22 @@ pub fn build_sandbox_config(
     let mut annotations = pod.annotations.clone();
 
     // Encode seccomp profile for legacy annotation support.
-    if let Some(sc) = &pod.security_context {
-        if let Some(seccomp) = &sc.seccomp_profile {
-            let profile_str = match seccomp.type_.as_str() {
-                "RuntimeDefault" => "runtime/default".to_string(),
-                "Unconfined" => "unconfined".to_string(),
-                "Localhost" => format!(
-                    "localhost/{}",
-                    seccomp.localhost_profile.as_deref().unwrap_or("")
-                ),
-                _ => "runtime/default".to_string(),
-            };
-            annotations.insert(
-                "seccomp.security.alpha.kubernetes.io/pod".to_string(),
-                profile_str,
-            );
-        }
+    if let Some(sc) = &pod.security_context
+        && let Some(seccomp) = &sc.seccomp_profile
+    {
+        let profile_str = match seccomp.type_.as_str() {
+            "RuntimeDefault" => "runtime/default".to_string(),
+            "Unconfined" => "unconfined".to_string(),
+            "Localhost" => format!(
+                "localhost/{}",
+                seccomp.localhost_profile.as_deref().unwrap_or("")
+            ),
+            _ => "runtime/default".to_string(),
+        };
+        annotations.insert(
+            "seccomp.security.alpha.kubernetes.io/pod".to_string(),
+            profile_str,
+        );
     }
 
     CreateSandboxConfig {

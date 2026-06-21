@@ -177,10 +177,10 @@ impl CniPluginExecutor {
         paths.sort(); // deterministic order
 
         for path in paths {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Some(config) = parse_cni_network_config(&content) {
-                    configs.push(config);
-                }
+            if let Ok(content) = std::fs::read_to_string(&path)
+                && let Some(config) = parse_cni_network_config(&content)
+            {
+                configs.push(config);
             }
         }
         configs

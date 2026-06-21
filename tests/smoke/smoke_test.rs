@@ -17,7 +17,7 @@ limitations under the License.
 //! Smoke tests: verify the kubelet binary and server start correctly.
 
 use kubelet_adapters::mock_runtime::MockRuntime;
-use kubelet_app::server::{build_router, ServerState};
+use kubelet_app::server::{ServerState, build_router};
 use kubelet_core::pod::manager::PodManager;
 use std::net::SocketAddr;
 use std::sync::Arc;

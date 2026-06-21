@@ -161,17 +161,16 @@ impl FeatureScanner {
             if line.starts_with("processor") {
                 thread_count += 1;
             }
-            if line.starts_with("core id") {
-                if let Some(id) = line.split(':').nth(1).map(|s| s.trim().to_string()) {
-                    core_ids.insert(id);
-                }
+            if line.starts_with("core id")
+                && let Some(id) = line.split(':').nth(1).map(|s| s.trim().to_string())
+            {
+                core_ids.insert(id);
             }
-            if line.starts_with("model name") {
-                if let Some(model) = line.split(':').nth(1).map(|s| s.trim().to_string()) {
-                    if features.cpu_model.is_empty() {
-                        features.cpu_model = model;
-                    }
-                }
+            if line.starts_with("model name")
+                && let Some(model) = line.split(':').nth(1).map(|s| s.trim().to_string())
+                && features.cpu_model.is_empty()
+            {
+                features.cpu_model = model;
             }
             if (line.starts_with("flags") || line.starts_with("Features"))
                 && features.cpu_flags.is_empty()
@@ -225,10 +224,10 @@ impl FeatureScanner {
                 if name.starts_with("hugepages-") {
                     let size = name.trim_start_matches("hugepages-").to_string();
                     let count_path = dir.join("nr_hugepages");
-                    if let Ok(count_str) = std::fs::read_to_string(&count_path) {
-                        if let Ok(count) = count_str.trim().parse::<u64>() {
-                            features.hugepages.insert(size, count);
-                        }
+                    if let Ok(count_str) = std::fs::read_to_string(&count_path)
+                        && let Ok(count) = count_str.trim().parse::<u64>()
+                    {
+                        features.hugepages.insert(size, count);
                     }
                 }
             }

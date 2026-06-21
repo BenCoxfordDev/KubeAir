@@ -80,29 +80,27 @@ impl PodManager {
                 // every file-config poll cycle. Only send an Update event when the
                 // aliases actually changed (avoids spurious restarts).
                 if !pod.host_aliases.is_empty() {
-                    if existing_aliases != pod.host_aliases {
-                        if let Some(mut entry) = self.desired.get_mut(&existing_uid) {
-                            entry.host_aliases = pod.host_aliases.clone();
-                            let updated_pod = entry.clone();
-                            drop(entry);
-                            info!(
-                                pod = %updated_pod.pod_ref,
-                                uid = %existing_uid,
-                                host_aliases_count = updated_pod.host_aliases.len(),
-                                "Merged host_aliases from file source into existing pod entry"
-                            );
-                            self.update_tx
-                                .send(PodUpdate {
-                                    pod: updated_pod,
-                                    op: PodOperation::Update,
-                                })
-                                .await
-                                .map_err(|e| {
-                                    KubeletError::Internal(format!(
-                                        "pod update channel closed: {e}"
-                                    ))
-                                })?;
-                        }
+                    if existing_aliases != pod.host_aliases
+                        && let Some(mut entry) = self.desired.get_mut(&existing_uid)
+                    {
+                        entry.host_aliases = pod.host_aliases.clone();
+                        let updated_pod = entry.clone();
+                        drop(entry);
+                        info!(
+                            pod = %updated_pod.pod_ref,
+                            uid = %existing_uid,
+                            host_aliases_count = updated_pod.host_aliases.len(),
+                            "Merged host_aliases from file source into existing pod entry"
+                        );
+                        self.update_tx
+                            .send(PodUpdate {
+                                pod: updated_pod,
+                                op: PodOperation::Update,
+                            })
+                            .await
+                            .map_err(|e| {
+                                KubeletError::Internal(format!("pod update channel closed: {e}"))
+                            })?;
                     }
                     return Ok(());
                 }
@@ -125,18 +123,18 @@ impl PodManager {
         // currently-stored spec does, preserve the stored aliases. API-server periodic
         // re-syncs carry the mirror pod spec which has empty host_aliases, and would
         // otherwise silently clear the aliases that were merged from the static file source.
-        if !is_new && pod.host_aliases.is_empty() {
-            if let Some(existing) = self.desired.get(&uid) {
-                if !existing.host_aliases.is_empty() {
-                    pod.host_aliases = existing.host_aliases.clone();
-                    debug!(
-                        pod = %pod.pod_ref,
-                        uid = %uid,
-                        host_aliases_count = pod.host_aliases.len(),
-                        "Preserved host_aliases on update (incoming spec had none)"
-                    );
-                }
-            }
+        if !is_new
+            && pod.host_aliases.is_empty()
+            && let Some(existing) = self.desired.get(&uid)
+            && !existing.host_aliases.is_empty()
+        {
+            pod.host_aliases = existing.host_aliases.clone();
+            debug!(
+                pod = %pod.pod_ref,
+                uid = %uid,
+                host_aliases_count = pod.host_aliases.len(),
+                "Preserved host_aliases on update (incoming spec had none)"
+            );
         }
 
         self.desired.insert(uid.clone(), pod.clone());

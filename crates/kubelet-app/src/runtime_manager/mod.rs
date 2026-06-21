@@ -175,13 +175,12 @@ impl RuntimeManager {
                                 slot.retry_count = 0;
                             }
                         }
-                        if let Some(lifecycle_state) = pod_manager.status.get(&uid) {
-                            if let Err(e) = reporter
+                        if let Some(lifecycle_state) = pod_manager.status.get(&uid)
+                            && let Err(e) = reporter
                                 .report_pod_status(&current_pod.pod_ref, &uid, &lifecycle_state)
                                 .await
-                            {
-                                warn!(pod = %current_pod.pod_ref, error = %e, "Failed to report pod status");
-                            }
+                        {
+                            warn!(pod = %current_pod.pod_ref, error = %e, "Failed to report pod status");
                         }
                         debug!(pod = %current_pod.pod_ref, "Pod synced successfully");
                     }
@@ -192,13 +191,12 @@ impl RuntimeManager {
                         warn!(pod = %current_pod.pod_ref, reason, "Pod sync needs retry");
                         // Report current status so the API server always sees progress,
                         // even while waiting for init containers or image pulls.
-                        if let Some(lifecycle_state) = pod_manager.status.get(&uid) {
-                            if let Err(e) = reporter
+                        if let Some(lifecycle_state) = pod_manager.status.get(&uid)
+                            && let Err(e) = reporter
                                 .report_pod_status(&current_pod.pod_ref, &uid, &lifecycle_state)
                                 .await
-                            {
-                                warn!(pod = %current_pod.pod_ref, error = %e, "Failed to report pod status on retry");
-                            }
+                        {
+                            warn!(pod = %current_pod.pod_ref, error = %e, "Failed to report pod status on retry");
                         }
                         // Exponential back-off: 500ms, 1s, 2s, 4s, … capped at 30s.
                         // This ensures the pod retries autonomously even when the API
@@ -246,13 +244,12 @@ impl RuntimeManager {
                         locked.remove(&uid);
                         drop(locked);
                         // Report final status (e.g. Failed/DeadlineExceeded) before cleaning up.
-                        if let Some(lifecycle_state) = pod_manager.status.get(&uid) {
-                            if let Err(e) = reporter
+                        if let Some(lifecycle_state) = pod_manager.status.get(&uid)
+                            && let Err(e) = reporter
                                 .report_pod_status(&current_pod.pod_ref, &uid, &lifecycle_state)
                                 .await
-                            {
-                                warn!(pod = %current_pod.pod_ref, error = %e, "Failed to report final pod status after termination");
-                            }
+                        {
+                            warn!(pod = %current_pod.pod_ref, error = %e, "Failed to report final pod status after termination");
                         }
                         // Do NOT force-delete the pod from the API server here. This path is
                         // only reached for natural terminations (init container failure,
@@ -385,13 +382,12 @@ impl RuntimeManager {
                 .await;
 
             // Report final status to API server
-            if let Some(lifecycle_state) = pod_manager.status.get(&pod.uid) {
-                if let Err(e) = reporter
+            if let Some(lifecycle_state) = pod_manager.status.get(&pod.uid)
+                && let Err(e) = reporter
                     .report_pod_status(&pod.pod_ref, &pod.uid, &lifecycle_state)
                     .await
-                {
-                    warn!(pod = %pod.pod_ref, error = %e, "Failed to report final pod status after termination");
-                }
+            {
+                warn!(pod = %pod.pod_ref, error = %e, "Failed to report final pod status after termination");
             }
 
             // Force-delete the pod from the API server so it disappears from kubectl/e2e framework

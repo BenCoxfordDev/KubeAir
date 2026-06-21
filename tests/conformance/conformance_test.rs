@@ -28,20 +28,20 @@ use kubelet_adapters::eviction::{EvictionThreshold, ThresholdValue};
 use kubelet_adapters::image_gc::{ImageGcConfig, ImageGcManager};
 use kubelet_adapters::node_status::NodeConditionDeriver;
 use kubelet_adapters::oom_watcher::{OomEvent, OomScoreManager, OomWatcher};
-use kubelet_adapters::prober::{run_grpc_probe, ProbeResult};
+use kubelet_adapters::prober::{ProbeResult, run_grpc_probe};
 use kubelet_core::config::KubeletConfig;
 use kubelet_core::container::ImageInfo;
 use kubelet_core::lease::NodeLease;
 use kubelet_core::node::{NodeCondition, NodeConditionStatus, NodeConditionType, NodeStatus};
 use kubelet_core::pod::lifecycle::{
-    compute_pod_phase, ConditionStatus, ContainerState, ContainerStatus, PodConditionType, PodPhase,
+    ConditionStatus, ContainerState, ContainerStatus, PodConditionType, PodPhase, compute_pod_phase,
 };
 use kubelet_core::pod::status::PodStatusManager;
 use kubelet_core::pod::sync::validate_pod;
 use kubelet_core::pod::{
     ContainerSpec, ImagePullPolicy, PodSpec, ResourceRequirements, RestartPolicy,
 };
-use kubelet_core::qos::{compute_qos_class, oom_score_adj, QosClass};
+use kubelet_core::qos::{QosClass, compute_qos_class, oom_score_adj};
 use kubelet_core::types::{PodRef, PodUID, ResourceQuantity};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -323,10 +323,12 @@ fn conformance_pod_status_has_scheduled_condition() {
     let pod = base_pod();
     m.initialize(&pod);
     let state = m.get(&pod.uid).unwrap();
-    assert!(state
-        .conditions
-        .iter()
-        .any(|c| c.condition_type == PodConditionType::PodScheduled));
+    assert!(
+        state
+            .conditions
+            .iter()
+            .any(|c| c.condition_type == PodConditionType::PodScheduled)
+    );
 }
 #[test]
 fn conformance_pod_status_containers_initially_waiting() {
@@ -545,9 +547,10 @@ fn conformance_eviction_no_eviction_below_threshold() {
         available_pids: 10000,
         total_pids: 32768,
     };
-    assert!(mgr
-        .evaluate(&resources, &[base_pod()], &HashMap::new())
-        .is_empty());
+    assert!(
+        mgr.evaluate(&resources, &[base_pod()], &HashMap::new())
+            .is_empty()
+    );
 }
 
 /// [Conformance] BestEffort pods receive 0-second grace period.
@@ -1206,7 +1209,7 @@ fn test_conformance_secret_optional_create_populates_volume() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 use kubelet_adapters::prober::{
-    evaluate_probe_result, ProbeDecision, ProbeResult as ProberResult, ProbeState, ProbeType,
+    ProbeDecision, ProbeResult as ProberResult, ProbeState, ProbeType, evaluate_probe_result,
 };
 
 fn make_probe(success_threshold: u32, failure_threshold: u32) -> kubelet_core::pod::Probe {
@@ -1753,14 +1756,18 @@ fn conformance_pod_status_containers_ready_condition_present() {
         2,
         "Exactly 2 conditions (PodScheduled + Initialized) must be set at initialization"
     );
-    assert!(state
-        .conditions
-        .iter()
-        .any(|c| c.condition_type == PodConditionType::PodScheduled));
-    assert!(state
-        .conditions
-        .iter()
-        .any(|c| c.condition_type == PodConditionType::Initialized));
+    assert!(
+        state
+            .conditions
+            .iter()
+            .any(|c| c.condition_type == PodConditionType::PodScheduled)
+    );
+    assert!(
+        state
+            .conditions
+            .iter()
+            .any(|c| c.condition_type == PodConditionType::Initialized)
+    );
 }
 
 /// [Conformance] PodStatusManager does not set a Ready condition at init time.

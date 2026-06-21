@@ -22,17 +22,17 @@ use kubelet_adapters::cpu_manager::{CpuManager, CpuSet};
 use kubelet_adapters::device_manager::DeviceManager;
 use kubelet_adapters::eviction::pressure::threshold_exceeded;
 use kubelet_adapters::image_puller::{ImagePuller, PodGarbageCollector};
-use kubelet_adapters::log_manager::{parse_log_max_size, LogEntry, LogManager};
+use kubelet_adapters::log_manager::{LogEntry, LogManager, parse_log_max_size};
 use kubelet_adapters::memory_manager::MemoryManager;
-use kubelet_adapters::nfd::labels::{features_to_extended_resources, features_to_labels};
 use kubelet_adapters::nfd::NodeFeatures;
+use kubelet_adapters::nfd::labels::{features_to_extended_resources, features_to_labels};
 use kubelet_adapters::plugin_registration::{PluginRegistry, PluginType, RegistrationRequest};
 use kubelet_adapters::resource_manager::ResourceManager;
 use kubelet_adapters::resource_version::ResourceVersionState;
-use kubelet_adapters::sandbox_builder::{build_sandbox_config, NodeDnsConfig};
-use kubelet_adapters::stats::{build_stats_summary, CgroupStatsReader, NodeStatSnapshot};
+use kubelet_adapters::sandbox_builder::{NodeDnsConfig, build_sandbox_config};
+use kubelet_adapters::stats::{CgroupStatsReader, NodeStatSnapshot, build_stats_summary};
 use kubelet_adapters::topology_manager::TopologyManager;
-use kubelet_adapters::volume_fsgroup::{apply_fs_group, FsGroupPolicy};
+use kubelet_adapters::volume_fsgroup::{FsGroupPolicy, apply_fs_group};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -459,14 +459,14 @@ fn make_test_container(name: &str, cpu: &str, mem: &str) -> kubelet_core::pod::C
 //   → PluginRegistrationServer populates PluginRegistry
 //   → DeviceManager connects to plugin socket, calls ListAndWatch / Allocate
 
-use futures::stream;
 use futures::Stream;
+use futures::stream;
 use kubelet_adapters::device_manager::proto::{
-    device_plugin_server::{DevicePlugin, DevicePluginServer},
-    registration_client::RegistrationClient,
     AllocateRequest as ProtoAllocateRequest, AllocateResponse as ProtoAllocateResponse,
     ContainerAllocateResponse as ProtoContainerAllocateResponse, Device as ProtoDevice,
     DevicePluginOptions, Empty, ListAndWatchResponse as ProtoListAndWatchResponse, RegisterRequest,
+    device_plugin_server::{DevicePlugin, DevicePluginServer},
+    registration_client::RegistrationClient,
 };
 use kubelet_adapters::plugin_registration::PluginRegistrationServer;
 use std::pin::Pin;

@@ -1,0 +1,62 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+
+rust_test(
+    name = "cluster_health_test",
+    srcs = ["cluster_health_test.rs"],
+    deps = [
+        "@crates//:k8s-openapi",
+        "@crates//:kube",
+        "@crates//:tokio",
+        "@crates//:rustls",
+    ],
+)
+
+rust_test(
+    name = "container_cleanup_test",
+    srcs = ["container_cleanup_test.rs"],
+    deps = [
+        "@crates//:k8s-openapi",
+        "@crates//:kube",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+        "@crates//:rustls",
+    ],
+)
+
+rust_test(
+    name = "containerd_api_status_test",
+    srcs = ["containerd_api_status_test.rs"],
+    deps = [
+        "@crates//:k8s-openapi",
+        "@crates//:kube",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+        "@crates//:rustls",
+    ],
+)
+
+rust_test(
+    name = "kubectl_ops_test",
+    srcs = ["kubectl_ops_test.rs"],
+    deps = [
+        "@crates//:k8s-openapi",
+        "@crates//:kube",
+        "@crates//:tokio",
+        "@crates//:rustls",
+    ],
+)
+
+rust_test(
+    name = "workload_features_test",
+    srcs = ["workload_features_test.rs"],
+    deps = [
+        "//crates/kubelet-adapters/src:lib",
+        "@crates//:k8s-openapi",
+        "@crates//:kube",
+        "@crates//:tokio",
+        "@crates//:rustls",
+        "@crates//:tonic",
+        "@crates//:tower",
+        "@crates//:hyper-util",
+    ],
+)

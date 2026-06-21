@@ -31,7 +31,7 @@ use crate::eviction::parse_quantity;
 use kubelet_core::pod::lifecycle::PodPhase;
 use kubelet_core::pod::status::PodStatusManager;
 use kubelet_core::pod::{PodSpec, RestartPolicy};
-use kubelet_core::qos::{compute_qos_class, QosClass};
+use kubelet_core::qos::{QosClass, compute_qos_class};
 use kubelet_core::types::PodUID;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -177,16 +177,16 @@ impl EvictionManager {
         let pressure = self.evaluator.evaluate(resources);
         let mut decisions = Vec::new();
 
-        if pressure.memory_pressure {
-            if let Some(decision) = self.pick_eviction_candidate_memory(pods, usage) {
-                decisions.push(decision);
-            }
+        if pressure.memory_pressure
+            && let Some(decision) = self.pick_eviction_candidate_memory(pods, usage)
+        {
+            decisions.push(decision);
         }
 
-        if pressure.disk_pressure {
-            if let Some(decision) = self.pick_eviction_candidate_disk(pods, usage) {
-                decisions.push(decision);
-            }
+        if pressure.disk_pressure
+            && let Some(decision) = self.pick_eviction_candidate_disk(pods, usage)
+        {
+            decisions.push(decision);
         }
 
         decisions
@@ -217,10 +217,10 @@ impl EvictionManager {
     ) -> Option<EvictionDecision> {
         for (uid, qos, _usage) in &ranked {
             // Don't re-evict a pod within the reclaim period
-            if let Some(&last) = self.last_evictions.get(uid) {
-                if last.elapsed() < self.min_eviction_reclaim_period {
-                    continue;
-                }
+            if let Some(&last) = self.last_evictions.get(uid)
+                && last.elapsed() < self.min_eviction_reclaim_period
+            {
+                continue;
             }
 
             let grace = self.grace_period_for_qos(qos);

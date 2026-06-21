@@ -454,11 +454,7 @@ mod tests {
         let runner = Arc::new(ProbeRunner::new(runtime, tx));
 
         let (mut reporter, service) = health_reporter();
-        reporter
-            .set_serving::<tonic_health::pb::health_server::HealthServer<
-                tonic_health::server::HealthService,
-            >>()
-            .await;
+        reporter.set_serving::<tonic_health::pb::health_server::HealthServer<tonic_health::server::HealthService>>().await;
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();

@@ -1,0 +1,6 @@
+# Re-export targets from src for convenience
+alias(
+    name = "lib",
+    actual = "//crates/kubelet-app/src:lib",
+    visibility = ["//visibility:public"],
+)

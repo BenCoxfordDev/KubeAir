@@ -2,24 +2,26 @@
 # Generated for licensing compliance audit before open-source release
 
 [advisories]
+version = 2
 # The advisories table is used to record and deny crate advisories
-# https://deps.rs/
 db-path = "~/.cargo/advisory-db"
-db-urls = ["https://github.com/rustsec/advisory-db/raw/main/db.json.gz"]
-vulnerability = "warn"
-unmaintained = "warn"
-unsound = "warn"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Scope values: all, workspace, transitive, none
+unmaintained = "workspace"
+unsound = "workspace"
 yanked = "warn"
+# Transitive advisory ignores — remove when upstream dependency is updated
+ignore = [
+  # rustls-pemfile is unmaintained; used transitively via kube-client
+  # Migrate when kube updates to rustls-pki-types >= 1.9.0
+  { id = "RUSTSEC-2025-0134", reason = "transitive via kube-client, cannot update directly" },
+]
 
 [licenses]
-# Lint level for licenses
-unlicensed = "warn"
-copyleft = "warn"
+version = 2
 allow = [
   "MIT",
   "Apache-2.0",
-  "Apache-2.0 OR MIT",
-  "MIT OR Apache-2.0",
   "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",
@@ -28,16 +30,8 @@ allow = [
   "Zlib",
   "Unlicense",
 ]
-# Lint level for licenses considered copyleft
-copyleft-exceptions = []
-# Blanket approval or denial for OSI-approved or FSF Free/Libre licenses
-allow-osi-fsf-free = "both"
-# Lint level used when no other predicates are matched
-default = "warn"
 # The confidence threshold for detecting a license from license text.
 confidence-threshold = 0.8
-# Some crates don't have a detectable license
-allow-unknown = ["jsonpath-rust"]
 
 [bans]
 # Lint level for when multiple versions of the same crate are detected
@@ -63,8 +57,6 @@ skip-tree = []
 unknown-registry = "warn"
 # Lint level for what to happen when a crate from a git repository that is not in the allow list is detected
 unknown-git = "warn"
-# The lint level used when a detected crate source does not conform to the requirements for a crate source
-invalid = "warn"
 # List of allowed crate registries
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # List of allowed Git repositories

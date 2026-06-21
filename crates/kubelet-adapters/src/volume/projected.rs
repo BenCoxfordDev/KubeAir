@@ -253,8 +253,8 @@ mod tests {
             items: vec![],
             optional: false,
         }];
-        assert!(mgr
-            .mount(
+        assert!(
+            mgr.mount(
                 &sources,
                 &target,
                 0o644,
@@ -262,7 +262,8 @@ mod tests {
                 &HashMap::new(),
                 None
             )
-            .is_err());
+            .is_err()
+        );
     }
 
     #[test]

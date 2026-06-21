@@ -49,9 +49,9 @@ use kubelet_adapters::url_config::UrlPodSource;
 use kubelet_adapters::volume::CompositeVolumeManager;
 use kubelet_core::config::KubeletConfig;
 use kubelet_core::node::NodeStatus;
-use kubelet_core::pod::manager::PodManager;
 use kubelet_core::pod::PodOperation;
 use kubelet_core::pod::PodUpdate;
+use kubelet_core::pod::manager::PodManager;
 use kubelet_cri::ContainerdClient;
 use kubelet_ports::driven::container_runtime::{
     ContainerRuntime, CreateSandboxConfig, ImageManager,
@@ -422,10 +422,7 @@ impl Kubelet {
         });
         let healthz_router = router.clone();
 
-        let tls = match (
-            &self.config.tls_cert_file,
-            &self.config.tls_private_key_file,
-        ) {
+        let tls = match (&self.config.tls_cert_file, &self.config.tls_private_key_file) {
             (Some(cert), Some(key)) => Some(crate::tls_server::TlsConfig {
                 cert_pem_path: cert.clone(),
                 key_pem_path: key.clone(),
@@ -439,9 +436,7 @@ impl Kubelet {
                 Some,
             ),
             _ => {
-                warn!(
-                    "Only one TLS file configured; serving HTTP. Set both tls_cert_file and tls_private_key_file for HTTPS"
-                );
+                warn!("Only one TLS file configured; serving HTTP. Set both tls_cert_file and tls_private_key_file for HTTPS");
                 None
             }
         };
@@ -719,16 +714,13 @@ fn total_memory_bytes() -> u64 {
 fn detect_internal_ip() -> String {
     // Pick the default-route source IP so apiserver proxy does not reject
     // loopback-only node addresses.
-    if let Ok(sock) = UdpSocket::bind("0.0.0.0:0") {
-        if sock.connect("1.1.1.1:80").is_ok() {
-            if let Ok(addr) = sock.local_addr() {
-                if let IpAddr::V4(v4) = addr.ip() {
-                    if !v4.is_loopback() {
-                        return v4.to_string();
-                    }
-                }
-            }
-        }
+    if let Ok(sock) = UdpSocket::bind("0.0.0.0:0")
+        && sock.connect("1.1.1.1:80").is_ok()
+        && let Ok(addr) = sock.local_addr()
+        && let IpAddr::V4(v4) = addr.ip()
+        && !v4.is_loopback()
+    {
+        return v4.to_string();
     }
     warn!("Falling back to loopback InternalIP; apiserver node proxy may fail");
     "127.0.0.1".to_string()

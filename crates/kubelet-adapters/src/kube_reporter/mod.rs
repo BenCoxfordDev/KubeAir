@@ -45,10 +45,10 @@ use futures::StreamExt;
 use k8s_openapi::api::core::v1::{Node, NodeCondition as K8sNodeCondition, Pod};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::{
+    Client, Config, Error as KubeError,
     api::{Api, ListParams, Patch, PatchParams, PostParams},
     config::{KubeConfigOptions, Kubeconfig},
     runtime::watcher::{self, Event},
-    Client, Config, Error as KubeError,
 };
 
 fn format_lease_renew_time(now: chrono::DateTime<Utc>) -> String {
@@ -714,12 +714,11 @@ impl PodSource for KubePodSource {
                                     if pod.metadata.deletion_timestamp.is_some() {
                                         continue;
                                     }
-                                    if let Some(spec) = pod_to_spec(&pod, &node_name) {
-                                        if tx.send(PodUpdate { pod: spec, op: PodOperation::Reconcile }).await.is_err() {
+                                    if let Some(spec) = pod_to_spec(&pod, &node_name)
+                                        && tx.send(PodUpdate { pod: spec, op: PodOperation::Reconcile }).await.is_err() {
                                             warn!("Pod source channel closed during relist");
                                             return Ok(());
                                         }
-                                    }
                                 }
                             }
                             Ok(Err(e)) => {
@@ -881,15 +880,15 @@ fn pod_to_spec(pod: &Pod, node_name: &str) -> Option<PodSpec> {
     // source uses a deterministic synthetic UID, while the mirror has its own
     // etcd UID) which causes the pod_worker to destroy and recreate the sandbox
     // on every kubelet restart.
-    if let Some(annotations) = &pod.metadata.annotations {
-        if annotations.contains_key("kubernetes.io/config.mirror") {
-            debug!(
-                pod = %name,
-                namespace = %ns,
-                "Skipping static pod mirror from API server watcher"
-            );
-            return None;
-        }
+    if let Some(annotations) = &pod.metadata.annotations
+        && annotations.contains_key("kubernetes.io/config.mirror")
+    {
+        debug!(
+            pod = %name,
+            namespace = %ns,
+            "Skipping static pod mirror from API server watcher"
+        );
+        return None;
     }
 
     let k8s_spec = pod.spec.as_ref()?;

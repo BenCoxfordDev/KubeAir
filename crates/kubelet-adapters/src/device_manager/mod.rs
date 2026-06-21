@@ -45,16 +45,16 @@ use tower::service_fn;
 use tracing::{debug, error, info, warn};
 
 pub mod proto {
-    tonic::include_proto!("v1beta1");
+    include!("../proto_generated.rs");
 }
 
 use proto::{
-    device_plugin_client::DevicePluginClient,
-    device_plugin_server::{DevicePlugin, DevicePluginServer},
     AllocateRequest as ProtoAllocateRequest, AllocateResponse as ProtoAllocateResponse,
     ContainerAllocateRequest as ProtoContainerAllocateRequest,
     ContainerAllocateResponse as ProtoContainerAllocateResponse, Device as ProtoDevice,
     DevicePluginOptions, Empty, ListAndWatchResponse as ProtoListAndWatchResponse,
+    device_plugin_client::DevicePluginClient,
+    device_plugin_server::{DevicePlugin, DevicePluginServer},
 };
 
 // -- Device types --------------------------------------------------------------
@@ -329,10 +329,10 @@ impl DeviceManager {
             resource_name.to_string(),
             socket_path.to_string_lossy().into_owned(),
         );
-        if let Ok(data) = serde_json::to_string_pretty(&checkpoint) {
-            if let Err(err) = std::fs::write(&checkpoint_path, data) {
-                warn!(path = %checkpoint_path.display(), error = %err, "Failed to persist device plugin registry");
-            }
+        if let Ok(data) = serde_json::to_string_pretty(&checkpoint)
+            && let Err(err) = std::fs::write(&checkpoint_path, data)
+        {
+            warn!(path = %checkpoint_path.display(), error = %err, "Failed to persist device plugin registry");
         }
     }
 
@@ -537,12 +537,12 @@ impl DeviceManager {
             for (container_name, resources) in container_allocations {
                 let key = allocation_key(pod_uid, &container_name);
                 for (resource_name, released_ids) in resources {
-                    if let Some(ep) = plugins.get_mut(&resource_name) {
-                        if let Some(allocated_ids) = ep.allocations.get_mut(&key) {
-                            allocated_ids.retain(|id| !released_ids.contains(id));
-                            if allocated_ids.is_empty() {
-                                ep.allocations.remove(&key);
-                            }
+                    if let Some(ep) = plugins.get_mut(&resource_name)
+                        && let Some(allocated_ids) = ep.allocations.get_mut(&key)
+                    {
+                        allocated_ids.retain(|id| !released_ids.contains(id));
+                        if allocated_ids.is_empty() {
+                            ep.allocations.remove(&key);
                         }
                     }
                 }
@@ -594,8 +594,8 @@ impl DeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::stream;
     use futures::Stream;
+    use futures::stream;
     use kubelet_core::types::PodUID;
     use tempfile::TempDir;
     use tokio::net::UnixListener;

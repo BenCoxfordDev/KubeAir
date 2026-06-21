@@ -109,8 +109,6 @@ jobs:
     if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    env:
-      CARGO_INCREMENTAL: "0"
 
     steps:
       # ── Checkout ─────────────────────────────────────────────────────────────
@@ -131,27 +129,18 @@ jobs:
           docker-images: true
           swap-storage: false
 
-      # ── Rust toolchain ────────────────────────────────────────────────────────
+      # ── Bazel ─────────────────────────────────────────────────────────────────
 
-      - name: Verify Rust toolchain
-        shell: bash
-        run: |
-          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
-          rustc --version
-          cargo --version
-
-      - name: Install build prerequisites
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq protobuf-compiler
-          protoc --version
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.9.1
         with:
-          shared-key: "rust-e2e"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          bazelisk-cache: true
+          disk-cache: kubeair
+          repository-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up just
+        uses: extractions/setup-just@v2
 
       # ── Build kube-air kubelet ────────────────────────────────────────────────
 
@@ -159,18 +148,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$(dirname "$KUBELET_BIN")"
-          cargo build --release --bin kubelet --locked
-          cp target/release/kubelet "$KUBELET_BIN"
+          just build
+          cp bazel-bin/src/main "$KUBELET_BIN"
           echo "Built: $KUBELET_BIN ($(du -sh "$KUBELET_BIN" | cut -f1))"
           file "$KUBELET_BIN"
-
-      - name: Clean build artifacts to free disk space
-        shell: bash
-        run: |
-          # The binary is already copied; remove the target dir (~5-10 GB)
-          # to make room for Kubernetes + container images.
-          rm -rf target
-          df -h /
 
       # ── Provision cluster ─────────────────────────────────────────────────────
 
@@ -262,7 +243,6 @@ jobs:
 
           KUBECONFIG=/tmp/kubeair-admin.conf \
           KUBEAIR_REPO_PATH="$KUBEAIR_REPO_PATH" \
-          CARGO_BUILD_JOBS=2 \
           RUN_UNIT_TESTS="$RUN_UNIT_TESTS" \
           RUN_E2E_TESTS="$RUN_E2E_TESTS" \
           ARTIFACT_DIR="$ARTIFACT_DIR" \

@@ -1,0 +1,27 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "lib",
+    crate_name = "kubelet_core",
+    srcs = glob(["**/*.rs"]),
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:thiserror",
+        "@crates//:anyhow",
+        "@crates//:uuid",
+        "@crates//:chrono",
+        "@crates//:k8s-openapi",
+        "@crates//:tracing",
+        "@crates//:tokio",
+        "@crates//:dashmap",
+        "@crates//:parking_lot",
+        "@crates//:serde_yaml",
+        "@crates//:hostname",
+    ],
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+)
+

@@ -286,15 +286,15 @@ impl CpuManager {
     /// Release exclusive CPUs when a container exits.
     pub fn release(&mut self, pod_uid: &PodUID, container_name: &str) {
         let key = (pod_uid.0.clone(), container_name.to_string());
-        if let Some(assignment) = self.assignments.remove(&key) {
-            if assignment.exclusive {
-                info!(
-                    pod = %pod_uid.0, container = %container_name,
-                    cpus = %assignment.cpus.to_cpuset_string(),
-                    "Releasing exclusive CPUs"
-                );
-                self.available_cpus = self.available_cpus.union(&assignment.cpus);
-            }
+        if let Some(assignment) = self.assignments.remove(&key)
+            && assignment.exclusive
+        {
+            info!(
+                pod = %pod_uid.0, container = %container_name,
+                cpus = %assignment.cpus.to_cpuset_string(),
+                "Releasing exclusive CPUs"
+            );
+            self.available_cpus = self.available_cpus.union(&assignment.cpus);
         }
     }
 

@@ -2,6 +2,7 @@
 name = "kubelet-cri"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "CRI gRPC client adapter for the Rust kubelet"
 
 [dependencies]

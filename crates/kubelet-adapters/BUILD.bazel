@@ -1,0 +1,6 @@
+alias(
+    name = "lib",
+    actual = "//crates/kubelet-adapters/src:lib",
+    visibility = ["//visibility:public"],
+)
+
