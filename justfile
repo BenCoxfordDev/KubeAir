@@ -32,6 +32,9 @@ conformance:
 smoke:
   bazel test //tests/smoke:smoke_test
 
+generate-lockfile:
+  cargo generate-lockfile
+
 fmt:
   bazel run @rules_rust//:rustfmt
 
