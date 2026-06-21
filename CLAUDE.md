@@ -28,7 +28,7 @@ channel = "1.96.0"
 # Native build to machine
 just build
 
-# Cross-compile for Linux amd64 (requires cargo-zigbuild)
+# Cross-compile for Linux amd64
 just build amd64
 
 # Cross-compile for Linux arm64

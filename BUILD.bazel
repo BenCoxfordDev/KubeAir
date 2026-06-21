@@ -15,7 +15,7 @@ alias(
 
 gazelle(
     name = "gazelle",
-    gazelle = "@gazelle_rust//:gazelle_bin",
+    gazelle = "//hack/gazelle:gazelle_bin",
     # Ignore nested module directories - they're declared in lib.rs via pub mod
     # Gazelle directives prevent building subdirectories as separate packages
 )
