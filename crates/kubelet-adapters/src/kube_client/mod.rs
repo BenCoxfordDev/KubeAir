@@ -17,7 +17,7 @@ limitations under the License.
 //! Kubernetes API client adapter.
 //!
 //! Implements NodeReporter port using HTTP to the Kubernetes API server.
-//! In a full implementation this would use kube-rs; here we provide a
+//! In a full implementation this would use kubelet; here we provide a
 //! standalone mock-capable implementation suitable for testing.
 
 use async_trait::async_trait;

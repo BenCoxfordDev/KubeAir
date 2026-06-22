@@ -154,7 +154,7 @@ async fn test_cri_sandbox_network_ip_assigned() {
     assert_eq!(status.network.unwrap().ip, "10.244.0.1");
 }
 
-// ── Phase 12: kube-rs reporter ────────────────────────────────────────────────
+// ── Phase 12: kubelet reporter ────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_kube_reporter_standalone_all_methods() {

@@ -16,7 +16,7 @@ limitations under the License.
 
 //! Real Kubernetes API node reporter and pod source.
 //!
-//! `KubeNodeReporter` -- PATCHes Node and Pod status to the API server via kube-rs.
+//! `KubeNodeReporter` -- PATCHes Node and Pod status to the API server via kubelet.
 //! `KubePodSource`    -- watches the API server for pod assignments via kube_runtime::watcher.
 //!
 //! In standalone mode (no cluster reachable), both fall back to logging-only.
@@ -116,7 +116,7 @@ impl KubeNodeReporter {
         match mode {
             KubeConnectMode::Standalone => None,
             KubeConnectMode::InCluster => Client::try_default().await.ok().inspect(|c| {
-                info!("kube-rs: in-cluster client connected");
+                info!("kubelet: in-cluster client connected");
             }),
             KubeConnectMode::Kubeconfig { path } => {
                 let kubeconfig = match Kubeconfig::read_from(path) {
@@ -138,7 +138,7 @@ impl KubeNodeReporter {
 
                 match Client::try_from(config) {
                     Ok(client) => {
-                        info!(path = %path.display(), "kube-rs: kubeconfig client connected");
+                        info!(path = %path.display(), "kubelet: kubeconfig client connected");
                         Some(client)
                     }
                     Err(e) => {
@@ -696,7 +696,7 @@ impl PodSource for KubePodSource {
                 tokio::select! {
                     // biased: relist tick is checked first so it can never be
                     // starved by a high-frequency stream (e.g. during a burst
-                    // of Applied/Restarted events from kube-rs).
+                    // of Applied/Restarted events from kubelet).
                     biased;
                     _ = relist_tick.tick() => {
                         // Wrap the list call in a timeout so a hung API-server

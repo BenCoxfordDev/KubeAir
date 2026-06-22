@@ -54,7 +54,7 @@ When a new Kubernetes minor is released:
 
 1. **Update `k8s-openapi`** in `Cargo.toml` to the new version feature flag (e.g., `features = ["v1_34"]`).
 2. **Update `kube`** to the latest release compatible with the new API version.
-3. **Run `cargo update`** to pull latest patch versions of all dependencies.
+3. **Re-pin dependencies** by running `just generate-lockfile` to pull latest patch versions of all dependencies.
 4. **Re-run the full test suite** (`just test`) and the live cluster e2e suite (`bash hack/e2e/colima-run.sh`) against a cluster running the new Kubernetes version. All conformance and e2e tests must pass before a release is tagged.
 5. **Update the compatibility table** in this file.
 6. **Update `[workspace.package] version`** in `Cargo.toml` to the new `major.minor.0`.
@@ -67,7 +67,7 @@ Monitor these resources for changes that affect kubelet behaviour:
 - [Kubernetes Changelog](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/) — scan `kubelet` section for each release
 - [KEP tracker](https://kep.k8s.io/) — filter by SIG-Node for upcoming kubelet features
 - [k8s-openapi releases](https://github.com/Arnavion/k8s-openapi/releases) — signals when new API types are available
-- [kube-rs releases](https://github.com/kube-rs/kube/releases) — client library updates
+- [kubeair releases](https://github.com/BenCoxfordDev/kubeair/releases) — client library updates
 
 Subscribe to `kubernetes-dev` digest and SIG-Node meeting notes to stay ahead of API deprecations.
 
@@ -115,9 +115,48 @@ If a release already exists and you need to rebuild the artifacts for the same v
 
 No manual `git tag` or binary builds are required.
 
+### Patching an existing tagged release
+
+Sometimes a critical fix must be applied to an already-tagged version without bumping to a new version (e.g., rebuilding artifacts after a CI failure, or hot-patching a security issue on a tag that CI missed).
+
+**Scenario A — Rebuild artifacts only (no code change)**
+
+Run the `Release` workflow manually from the GitHub Actions UI:
+
+- `rebuild_assets=true`
+- `tag=vX.Y.Z`
+
+The pipeline checks out the existing tag, rebuilds both `amd64` and `arm64` archives, and replaces the matching assets on the GitHub Release without touching `Cargo.toml` or creating a new tag.
+
+**Scenario B — Code fix where `main` is still on the same minor**
+
+Use this when `main` is still at `1.33.x` (i.e. the fix and the next release share the same minor):
+
+1. Create a branch from the existing tag: `git checkout -b fix/1.33.1 v1.33.0`
+2. Apply the fix and update `[workspace.package] version` in `Cargo.toml` to `1.33.1`.
+3. Open a PR against `main` and merge — CI cuts `v1.33.1` automatically via the normal pipeline.
+
+**Scenario C — Code fix where `main` has already moved to a newer minor**
+
+Use this when `main` is already at `1.34.x` (or later) but `1.33.x` still needs a patch (e.g. a security fix for a supported older minor):
+
+1. Create a long-lived maintenance branch from the last good tag if one does not already exist:
+   ```bash
+   git checkout -b release/v1.33 v1.33.0
+   git push origin release/v1.33
+   ```
+2. Branch off that maintenance branch for the fix:
+   ```bash
+   git checkout -b patch/v1.33.1 release/v1.33
+   ```
+3. Apply the fixes and bump `[workspace.package] version` in `Cargo.toml` to `1.33.1`.
+4. Open a PR **against `release/1.33`** (not `main`) and merge.
+5. If the fix also applies to `main`, open a separate cherry-pick PR against `main`.
+6. Merging into `release/1.33` triggers the CI release pipeline automatically (same as `main`) — it tags `v1.33.1` and publishes the release artifacts.
+
 ### Pre-release checklist
 
-- [ ] `just verify` passes with zero warnings
+- [ ] `just verify` passes with zero warnings and no policy violations
 - [ ] `just test` passes (all unit, integration, and conformance suites)
 - [ ] E2E suite passes: 0 failures (`bash hack/e2e/colima-run.sh`)
 - [ ] Dependencies audited: `cargo audit` reports no high/critical advisories
@@ -139,8 +178,8 @@ The pipeline produces two artifacts per release, downloadable from the GitHub Re
 To build locally for testing before merging:
 
 ```bash
-just build amd64   # → target/x86_64-unknown-linux-gnu/release/kubelet
-just build arm64   # → target/aarch64-unknown-linux-gnu/release/kubelet
+just build amd64   # → bazel-bin/src/kubelet_linux_x86_64
+just build arm64   # → bazel-bin/src/kubelet_linux_arm64
 ```
 
 ## Security and Vulnerabilities
@@ -150,9 +189,11 @@ just build arm64   # → target/aarch64-unknown-linux-gnu/release/kubelet
 Run `cargo audit` before every release. Address all **critical** and **high** severity advisories before tagging. Medium severity advisories should be resolved within 30 days or explicitly acknowledged.
 
 ```bash
-cargo install cargo-audit
+cargo install cargo-audit  # one-time install
 cargo audit
 ```
+
+For dependency policy checks (license, bans, advisories), run `just verify` which includes `cargo_deny`.
 
 ### Vulnerability disclosure
 
@@ -193,7 +234,7 @@ The Rust toolchain version is pinned in `rust-toolchain.toml`. Consumers buildin
 When updating the toolchain:
 
 1. Edit `rust-toolchain.toml` with the new channel version.
-2. Run `cargo build --release` and `just test` to confirm no regressions.
+2. Run `just verify && just test` to confirm no regressions.
 3. Update the compatibility table above.
 4. Include the toolchain bump in the release notes.
 

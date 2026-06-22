@@ -5,38 +5,11 @@ against an already-provisioned cluster.
 
 ## Local usage
 
-### Against the existing Colima VM (macOS)
-
-The `colima-go-e2e.sh` script reuses the kubeadm cluster provisioned by
-`hack/e2e/colima-run.sh`. The cluster runs entirely inside the Colima VM, so
-the script SSHes in, copies `run-upstream-go-e2e.sh` there, and runs it inside
-the VM where the API server endpoint (`127.0.0.1:6443`) is reachable and test
-binaries are the correct linux architecture.
-
-Provision the cluster first (if not already done):
+SSH to local Colima VM:
 
 ```bash
-bash hack/e2e/colima-run.sh
+colima ssh --profile kubeair-e2e
 ```
-
-Then run the Go e2e/conformance suite against it:
-
-```bash
-# Conformance only (default)
-bash hack/e2e/kubernetes/colima-go-e2e.sh
-
-# sig-node e2e slice
-RUN_CONFORMANCE=0 RUN_E2E=1 E2E_FOCUS='\[sig-node\]' \
-bash hack/e2e/kubernetes/colima-go-e2e.sh
-
-# Custom Colima profile
-COLIMA_PROFILE=my-profile bash hack/e2e/kubernetes/colima-go-e2e.sh
-```
-
-Artifacts are pulled back to `$LOCAL_ARTIFACT_DIR`
-(default `/tmp/k8s-upstream-go-e2e-colima-artifacts`) after the run.
-
-### Against any cluster
 
 Run conformance only:
 
