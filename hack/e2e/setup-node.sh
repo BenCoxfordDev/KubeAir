@@ -136,7 +136,27 @@ sudo apt-get install -y -qq \
   ipvsadm \
   jq \
   ebtables \
-  ethtool
+  ethtool \
+  gcc \
+  build-essential
+
+# ── Step 1b: Bazelisk (provides `bazel` command for running tests) ─────────────
+
+if ! command -v bazel &>/dev/null; then
+  step "Installing Bazelisk"
+  _bazel_arch="$(uname -m)"
+  case "$_bazel_arch" in
+    aarch64|arm64) _bazel_arch="arm64" ;;
+    x86_64)        _bazel_arch="amd64" ;;
+    *) die "Unsupported arch for Bazelisk: $_bazel_arch" ;;
+  esac
+  _bazelisk_url="https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-${_bazel_arch}"
+  sudo curl -fsSL "$_bazelisk_url" -o /usr/local/bin/bazel
+  sudo chmod +x /usr/local/bin/bazel
+  log "Bazelisk installed: $(bazel version 2>&1 | head -1)"
+else
+  log "bazel already installed: $(bazel version 2>&1 | head -1)"
+fi
 
 # ── Step 2: containerd ────────────────────────────────────────────────────────
 

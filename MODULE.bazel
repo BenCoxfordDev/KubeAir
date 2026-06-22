@@ -44,4 +44,17 @@ crate.from_cargo(
     cargo_lockfile = "//:Cargo.lock",
     manifests = ["//:Cargo.toml"],
 )
+
+# tikv-jemalloc-sys: when cross-compiling from macOS ARM64 (16KB pages) to
+# Linux ARM64 (4KB pages), jemalloc's autoconf probes the *host* page size
+# and bakes it in.  Pass --with-lg-page=12 to force the Linux 4KB page size.
+# Without this, the binary traps with SIGTRAP on startup inside the VM.
+# Building this will take a long time (~5 mins) on macOS because jemalloc's C code is compiled with zig.
+# Once compiled, the resulting .rlib is cached in Bazel's sandbox and reused for future builds.
+crate.annotation(
+    build_script_env = {
+        "JEMALLOC_SYS_WITH_LG_PAGE": "12",
+    },
+    crate = "tikv-jemalloc-sys",
+)
 use_repo(crate, "crates")

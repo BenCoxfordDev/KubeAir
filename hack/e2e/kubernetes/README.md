@@ -5,6 +5,12 @@ against an already-provisioned cluster.
 
 ## Local usage
 
+SSH to local Colima VM:
+
+```bash
+colima ssh --profile kubeair-e2e
+```
+
 Run conformance only:
 
 ```bash

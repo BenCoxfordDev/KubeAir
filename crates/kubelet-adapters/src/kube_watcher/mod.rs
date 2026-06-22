@@ -17,7 +17,7 @@ limitations under the License.
 //! Kubernetes API watcher adapter.
 //!
 //! Provides a `PodSource` that watches the Kubernetes API server for pods
-//! assigned to this node, translating kube-rs watch events into `PodUpdate`s.
+//! assigned to this node, translating kubelet watch events into `PodUpdate`s.
 //!
 //! Also provides `KubeNodeReporter` -- a real `NodeReporter` implementation
 //! backed by the Kubernetes API.
@@ -114,7 +114,7 @@ impl PodSource for SimulatedApiPodSource {
 // -- Node reporter -------------------------------------------------------------
 
 /// Simulated node reporter that records calls but could be replaced with
-/// a real kube-rs backed implementation.
+/// a real kubelet backed implementation.
 ///
 /// The real implementation would call:
 ///   kube::Api::<Node>::patch_status(...)
@@ -188,7 +188,7 @@ impl NodeReporter for LoggingNodeReporter {
 
 // -- Pod spec conversion -------------------------------------------------------
 
-/// Convert a simplified pod spec map (as would come from kube-rs JSON) into
+/// Convert a simplified pod spec map (as would come from kubelet JSON) into
 /// our internal PodSpec. In a real implementation this would parse
 /// k8s_openapi::api::core::v1::Pod.
 pub fn pod_spec_from_map(map: &serde_json::Value, node_name: &str) -> Option<PodSpec> {

@@ -164,64 +164,33 @@ else
   log "Skipping repo sync (SKIP_SYNC_REPO=1)"
 fi
 
-# ── Step 4: Install Rust in VM and build kubelet natively ─────────────────────
-# Building natively inside the VM avoids all cross-compilation toolchain issues
-# (particularly aws-lc-sys / ring which require a glibc-capable C cross-compiler).
+# ── Step 4: Cross-compile kubelet locally and copy into VM ────────────────────
+# Cross-compile locally on the Mac (zig CC handles the Linux target) then
+# pipe the binary into the VM.  This avoids installing Bazel inside the VM
+# and sidesteps all zig UBSAN issues that affect the VM-side build.
 
-step "Building kubelet natively inside VM"
+step "Cross-compiling kubelet locally for VM arch: $COLIMA_ARCH"
+
+VM_KUBELET_BIN="/tmp/kubeair-kubelet"
 
 if [[ "$SKIP_BUILD_BINARY" == "1" ]]; then
   log "Skipping binary build (SKIP_BUILD_BINARY=1)"
 else
-  colima ssh --profile "$COLIMA_PROFILE" -- bash -s -- \
-      "$VM_REPO_PATH" "$CARGO_BUILD_JOBS" <<'BUILD'
-set -euo pipefail
-VM_REPO_PATH="$1"
-CARGO_BUILD_JOBS="$2"
+  case "$COLIMA_ARCH" in
+    aarch64|arm64) _just_arch="arm64";  _bin="$REPO_ROOT/bazel-bin/src/kubelet_linux_arm64"  ;;
+    x86_64)        _just_arch="amd64";  _bin="$REPO_ROOT/bazel-bin/src/kubelet_linux_x86_64" ;;
+    *) die "Unsupported COLIMA_ARCH: $COLIMA_ARCH" ;;
+  esac
 
-# Install build deps
-export DEBIAN_FRONTEND=noninteractive
-sudo apt-get update -qq
-sudo apt-get install -y -qq \
-  build-essential \
-  pkg-config \
-  libssl-dev \
-  protobuf-compiler \
-  curl \
-  git
+  log "Running: just build $_just_arch"
+  just -f "$REPO_ROOT/justfile" build "$_just_arch"
+  log "Binary built at $_bin"
 
-# Install Bazelisk (automatic Bazel version manager)
-if ! command -v bazel &>/dev/null; then
-  echo "Installing Bazelisk..."
-  curl --proto '=https' --tlsv1.2 -sSfL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
-    -o /tmp/bazel
-  chmod +x /tmp/bazel
-  sudo mv /tmp/bazel /usr/local/bin/bazel
+  log "Copying binary into VM at $VM_KUBELET_BIN ..."
+  colima ssh --profile "$COLIMA_PROFILE" -- \
+    bash -c "cat > '$VM_KUBELET_BIN' && chmod 755 '$VM_KUBELET_BIN'" < "$_bin"
+  log "Binary copied"
 fi
-
-# Install rustup / cargo if not present (Colima images don't ship Rust)
-if ! command -v cargo &>/dev/null; then
-  echo "Installing Rust via rustup..."
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --no-modify-path --profile minimal 2>&1
-fi
-
-# Source cargo env (rustup install does not modify current shell PATH)
-# shellcheck disable=SC1090
-source "$HOME/.cargo/env" 2>/dev/null \
-  || export PATH="$HOME/.cargo/bin:$PATH"
-
-rustc --version
-cargo --version
-bazel version
-
-cd "$VM_REPO_PATH"
-bazel build //src:kubelet -j "$CARGO_BUILD_JOBS"
-BUILD
-fi
-
-VM_KUBELET_BIN="$VM_REPO_PATH/bazel-bin/src/kubelet"
-log "Kubelet built at $VM_KUBELET_BIN (inside VM)"
 
 # ── Step 6: Run setup-node.sh inside VM ───────────────────────────────────────
 
