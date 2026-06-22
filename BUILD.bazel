@@ -5,7 +5,33 @@ load("@gazelle//:def.bzl", "gazelle")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 # Export rustfmt.toml for Bazel's rustfmt aspect
-exports_files(["rustfmt.toml"])
+exports_files([
+    "rustfmt.toml",
+    "Cargo.toml",
+    "Cargo.lock",
+])
+
+# Platform definitions for cross-compilation
+# Include the libc constraint so hermetic_cc_toolchain's libc-aware toolchains are selected.
+platform(
+    name = "linux_x86_64_platform",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+        "@zig_sdk//libc:gnu.2.28",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+platform(
+    name = "linux_arm64_platform",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+        "@zig_sdk//libc:gnu.2.28",
+    ],
+    visibility = ["//visibility:public"],
+)
 
 # Alias for the main binary
 alias(

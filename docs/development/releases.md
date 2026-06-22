@@ -105,6 +105,8 @@ PR to main (Cargo.toml changed)
 
 The idempotency check (tag already exists → skip) means it is safe to push other changes to `Cargo.toml` without cutting an unintended release, as long as the version number itself has not changed.
 
+If a release already exists and you need to rebuild the artifacts for the same version, run the `Release` workflow manually with `rebuild_assets=true` and `tag=vX.Y.Z`. That path checks out the tagged commit, rebuilds both archives, and replaces the matching assets on the existing GitHub release without changing `Cargo.toml`.
+
 ### Cutting a release
 
 1. **Complete the pre-release checklist** (see below).

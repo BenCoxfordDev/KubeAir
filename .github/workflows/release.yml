@@ -7,6 +7,16 @@ on:
     paths:
       - Cargo.toml
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild assets for, for example v1.33.0
+        required: false
+        type: string
+      rebuild_assets:
+        description: Rebuild and replace assets on an existing release tag
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,53 +32,100 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       should_release: ${{ steps.tag_check.outputs.should_release }}
+      create_tag: ${{ steps.tag_check.outputs.create_tag }}
+      create_release: ${{ steps.tag_check.outputs.create_release }}
+      checkout_ref: ${{ steps.tag_check.outputs.checkout_ref }}
+      rebuild_assets: ${{ steps.tag_check.outputs.rebuild_assets }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Read version
+      - name: Resolve version
         id: version
         shell: bash
         run: |
-          VERSION_RAW="$(awk '
-            /^\[workspace\.package\]/ { in_section=1; next }
-            in_section && /^\[/ { in_section=0 }
-            in_section && /^version[[:space:]]*=/ {
-              if (match($0, /"([^"]+)"/, m)) {
-                print m[1]
-                exit
+          INPUT_TAG="${{ github.event.inputs.tag || '' }}"
+
+          if [[ -n "$INPUT_TAG" ]]; then
+            if [[ "$INPUT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              VERSION="$INPUT_TAG"
+            elif [[ "$INPUT_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              VERSION="v${INPUT_TAG}"
+            else
+              echo "Invalid workflow_dispatch tag: $INPUT_TAG"
+              echo "Expected format: vMAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH"
+              exit 1
+            fi
+          else
+            VERSION_RAW="$(awk '
+              /^\[workspace\.package\]/ { in_section=1; next }
+              in_section && /^\[/ { in_section=0 }
+              in_section && /^version[[:space:]]*=/ {
+                if (match($0, /"([^"]+)"/, m)) {
+                  print m[1]
+                  exit
+                }
               }
-            }
-          ' Cargo.toml)"
+            ' Cargo.toml)"
 
-          if [[ -z "$VERSION_RAW" ]]; then
-            echo "Could not read workspace.package version from Cargo.toml"
-            exit 1
+            if [[ -z "$VERSION_RAW" ]]; then
+              echo "Could not read workspace.package version from Cargo.toml"
+              exit 1
+            fi
+
+            if [[ ! "$VERSION_RAW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid version format in Cargo.toml: $VERSION_RAW"
+              echo "Expected format: MAJOR.MINOR.PATCH"
+              exit 1
+            fi
+
+            VERSION="v${VERSION_RAW}"
           fi
 
-          if [[ ! "$VERSION_RAW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid version format in Cargo.toml: $VERSION_RAW"
-            echo "Expected format: MAJOR.MINOR.PATCH"
-            exit 1
-          fi
-
-          VERSION="v${VERSION_RAW}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Check tag availability
         id: tag_check
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          REBUILD_ASSETS="${{ github.event.inputs.rebuild_assets || 'false' }}"
+          # If triggered by a push (Cargo.toml change), treat it as a rebuild request
+          if [[ "${{ github.event_name }}" == 'push' ]]; then
+            REBUILD_ASSETS='true'
+          fi
+
           if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" > /dev/null 2>&1; then
-            echo "Tag ${VERSION} already exists. Skipping release creation."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            if [[ "$REBUILD_ASSETS" == 'true' ]]; then
+              echo "Tag ${VERSION} exists. Rebuilding release assets."
+              echo "should_release=true" >> "$GITHUB_OUTPUT"
+              echo "create_tag=false" >> "$GITHUB_OUTPUT"
+              echo "create_release=false" >> "$GITHUB_OUTPUT"
+              echo "checkout_ref=${VERSION}" >> "$GITHUB_OUTPUT"
+              echo "rebuild_assets=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Tag ${VERSION} already exists. Skipping release creation."
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+              echo "create_tag=false" >> "$GITHUB_OUTPUT"
+              echo "create_release=false" >> "$GITHUB_OUTPUT"
+              echo "checkout_ref=${VERSION}" >> "$GITHUB_OUTPUT"
+              echo "rebuild_assets=false" >> "$GITHUB_OUTPUT"
+            fi
           else
+            if [[ "$REBUILD_ASSETS" == 'true' ]]; then
+              echo "Tag ${VERSION} does not exist. Cannot rebuild release assets."
+              exit 1
+            fi
+
             echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "create_tag=true" >> "$GITHUB_OUTPUT"
+            echo "create_release=true" >> "$GITHUB_OUTPUT"
+            echo "checkout_ref=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "rebuild_assets=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Create and push git tag
-        if: steps.tag_check.outputs.should_release == 'true'
+        if: steps.tag_check.outputs.create_tag == 'true'
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -78,7 +135,7 @@ jobs:
           git push origin "$VERSION"
   create_release:
     needs: prepare
-    if: needs.prepare.outputs.should_release == 'true'
+    if: needs.prepare.outputs.create_release == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Create GitHub release
@@ -98,7 +155,7 @@ jobs:
     needs:
       - prepare
       - create_release
-    if: needs.prepare.outputs.should_release == 'true'
+    if: always() && needs.prepare.outputs.should_release == 'true' && (needs.create_release.result == 'success' || needs.create_release.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
@@ -111,14 +168,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.9.1
         with:
-          bazelisk-cache: true
-          disk-cache: kubeair
-          repository-cache: true
-          save-cache: ${{ github.ref == 'refs/heads/main' }}
+          bazelisk-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && 'false' || 'true' }}
+          disk-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && '' || 'kubeair' }}
+          repository-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && 'false' || 'true' }}
+          save-cache: ${{ needs.prepare.outputs.rebuild_assets == 'false' }}
+
+      - name: Clean Bazel state before rebuild
+        shell: bash
+        run: bazel clean --expunge
 
       - name: Set up just
         uses: extractions/setup-just@v2
@@ -146,6 +209,7 @@ jobs:
         env:
           TAG: ${{ needs.prepare.outputs.version }}
           ARTIFACT: ${{ steps.package.outputs.artifact }}
+          REBUILD_ASSETS: ${{ needs.prepare.outputs.rebuild_assets }}
         with:
           script: |
             const fs = require('fs');
@@ -153,6 +217,7 @@ jobs:
 
             const tag = process.env.TAG;
             const files = [process.env.ARTIFACT, `${process.env.ARTIFACT}.sha256`];
+            const shouldReplaceAssets = process.env.REBUILD_ASSETS === 'true';
 
             const { data: release } = await github.rest.repos.getReleaseByTag({
               owner: context.repo.owner,
@@ -160,13 +225,32 @@ jobs:
               tag
             });
 
+            const existingAssets = new Map(
+              release.assets.map((asset) => [asset.name, asset.id])
+            );
+
             for (const filePath of files) {
+              const fileName = path.basename(filePath);
+
+              if (existingAssets.has(fileName)) {
+                if (!shouldReplaceAssets) {
+                  core.setFailed(`Release asset already exists: ${fileName}`);
+                  return;
+                }
+
+                await github.rest.repos.deleteReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: existingAssets.get(fileName)
+                });
+              }
+
               const data = fs.readFileSync(filePath);
               await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: release.id,
-                name: path.basename(filePath),
+                name: fileName,
                 data,
                 headers: {
                   'content-type': 'application/octet-stream',

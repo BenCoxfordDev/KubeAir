@@ -9,13 +9,13 @@ build arch="native":
 
   case "{{arch}}" in
     amd64|x86_64)
-      bazel build //... --platforms=@rules_rust//rust/platform:linux_x86_64
+      bazel build //src:kubelet_linux_x86_64
       ;;
     arm64|aarch64)
-      bazel build //... --platforms=@rules_rust//rust/platform:linux_arm64
+      bazel build //src:kubelet_linux_arm64
       ;;
     native)
-      bazel build //...
+      bazel build //src:main
       ;;
     *)
       echo "Unsupported arch: {{arch}}. Use one of: native, amd64, arm64"
