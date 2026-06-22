@@ -176,7 +176,7 @@ jobs:
         with:
           bazelisk-cache: true
           disk-cache: kubeair
-          repository-cache: true
+          repository-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && 'false' || 'true' }}
           save-cache: false
 
       - name: Clean Bazel state before rebuild
