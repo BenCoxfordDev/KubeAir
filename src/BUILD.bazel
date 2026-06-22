@@ -1,5 +1,15 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary")
 
+PLATFORMS = [
+    "linux_x86_64",
+    "linux_arm64",
+]
+
+PLATFORM_TARGETS = {
+    "linux_x86_64": "//:linux_x86_64_platform",
+    "linux_arm64": "//:linux_arm64_platform",
+}
+
 rust_binary(
     name = "main",
     srcs = ["main.rs"],
@@ -16,3 +26,25 @@ rust_binary(
         "@crates//:tracing-subscriber",
     ],
 )
+
+[
+    rust_binary(
+        name = "kubelet_{}".format(platform),
+        srcs = ["main.rs"],
+        edition = "2024",
+        platform = PLATFORM_TARGETS[platform],
+        tags = ["manual"],
+        visibility = ["//visibility:public"],
+        deps = [
+            "//crates/kubelet-app/src:lib",
+            "@crates//:anyhow",
+            "@crates//:clap",
+            "@crates//:rustls",
+            "@crates//:tikv-jemallocator",
+            "@crates//:tokio",
+            "@crates//:tracing",
+            "@crates//:tracing-subscriber",
+        ],
+    )
+    for platform in PLATFORMS
+]

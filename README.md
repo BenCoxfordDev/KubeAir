@@ -74,7 +74,7 @@ sudo apt-get install protobuf-compiler
 # native build to local machine
 just build
 
-# Cross-compile for amd64 Linux (requires cargo-zigbuild)
+# Cross-compile for amd64 Linux
 just build amd64
 
 # Cross-compile for arm64 Linux
@@ -121,4 +121,4 @@ See [SECURITY.md](SECURITY.md) for how to report vulnerabilities.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Released under the Apache 2.0 licence (see [LICENSE](LICENSE)), KubeAir can be freely adopted, modified, and incorporated into commercial offerings without copyleft constraints. This provides a clear pathway for enterprise use while maintaining openness at the core, enabling organisations to build differentiated capabilities on top of a high-performance, resource-efficient Kubernetes node implementation.
