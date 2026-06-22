@@ -1,0 +1,134 @@
+name: K8s Upstream Go E2E
+
+# Dispatch-only workflow that runs upstream Kubernetes Go conformance/e2e
+# against an already-provisioned cluster. This workflow intentionally does
+# not build or run kube-air Rust tests.
+
+on:
+  workflow_dispatch:
+    inputs:
+      kubeconfig_base64:
+        description: "Optional base64 kubeconfig content. If empty, use /etc/kubernetes/admin.conf on runner"
+        required: false
+        type: string
+      upstream_k8s_version:
+        description: "Upstream Kubernetes release for test binaries (v1.33.0, 1.33.0, stable, stable-1.33)"
+        required: false
+        default: ""
+        type: string
+      run_conformance:
+        description: "Run upstream conformance suite"
+        required: false
+        default: true
+        type: boolean
+      run_e2e:
+        description: "Run upstream non-conformance e2e suite"
+        required: false
+        default: false
+        type: boolean
+      conformance_focus:
+        description: "Regex focus for conformance"
+        required: false
+        default: "\\[Conformance\\]"
+        type: string
+      conformance_skip:
+        description: "Regex skip for conformance"
+        required: false
+        default: "\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]"
+        type: string
+      e2e_focus:
+        description: "Regex focus for e2e"
+        required: false
+        default: "\\[sig-node\\]"
+        type: string
+      e2e_skip:
+        description: "Regex skip for e2e"
+        required: false
+        default: "\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]"
+        type: string
+      ginkgo_nodes:
+        description: "Parallel ginkgo nodes"
+        required: false
+        default: "4"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ARTIFACT_DIR: /tmp/k8s-upstream-go-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  kubernetes-go-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout kube-air
+        uses: actions/checkout@v4
+
+      - name: Resolve kubeconfig
+        id: kubeconfig
+        shell: bash
+        run: |
+          mkdir -p /tmp
+          if [[ -n "${{ inputs.kubeconfig_base64 }}" ]]; then
+            echo "${{ inputs.kubeconfig_base64 }}" | base64 -d > /tmp/upstream-kubeconfig
+            echo "kubeconfig=/tmp/upstream-kubeconfig" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ -f /etc/kubernetes/admin.conf ]]; then
+            sudo cp /etc/kubernetes/admin.conf /tmp/upstream-kubeconfig
+            sudo chown "$(id -u):$(id -g)" /tmp/upstream-kubeconfig
+            echo "kubeconfig=/tmp/upstream-kubeconfig" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "No kubeconfig provided and /etc/kubernetes/admin.conf not found"
+          exit 1
+
+      - name: Make upstream runner executable
+        shell: bash
+        run: chmod +x hack/e2e/kubernetes/run-upstream-go-e2e.sh
+
+      - name: Run upstream Kubernetes Go e2e/conformance
+        shell: bash
+        env:
+          KUBECONFIG: ${{ steps.kubeconfig.outputs.kubeconfig }}
+          ARTIFACT_DIR: ${{ env.ARTIFACT_DIR }}
+          UPSTREAM_K8S_VERSION: ${{ inputs.upstream_k8s_version }}
+          RUN_CONFORMANCE: ${{ inputs.run_conformance && '1' || '0' }}
+          RUN_E2E: ${{ inputs.run_e2e && '1' || '0' }}
+          CONFORMANCE_FOCUS: ${{ inputs.conformance_focus }}
+          CONFORMANCE_SKIP: ${{ inputs.conformance_skip }}
+          E2E_FOCUS: ${{ inputs.e2e_focus }}
+          E2E_SKIP: ${{ inputs.e2e_skip }}
+          GINKGO_NODES: ${{ inputs.ginkgo_nodes }}
+        run: |
+          bash hack/e2e/kubernetes/run-upstream-go-e2e.sh 2>&1 | tee /tmp/upstream-go-e2e.log
+
+      - name: Collect cluster diagnostics on failure
+        if: failure()
+        shell: bash
+        env:
+          KUBECONFIG: ${{ steps.kubeconfig.outputs.kubeconfig }}
+        run: |
+          mkdir -p "$ARTIFACT_DIR/cluster-state"
+          kubectl get nodes -o wide > "$ARTIFACT_DIR/cluster-state/nodes.txt" 2>&1 || true
+          kubectl get pods --all-namespaces -o wide > "$ARTIFACT_DIR/cluster-state/pods.txt" 2>&1 || true
+          kubectl get events --all-namespaces --sort-by=.lastTimestamp > "$ARTIFACT_DIR/cluster-state/events.txt" 2>&1 || true
+
+      - name: Upload upstream Go e2e artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-upstream-go-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.ARTIFACT_DIR }}/
+            /tmp/upstream-go-e2e.log
+          if-no-files-found: ignore
