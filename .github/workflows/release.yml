@@ -197,7 +197,10 @@ jobs:
           ARTIFACT="kubelet-${VERSION}-linux_${{ matrix.artifact_arch }}.tar.gz"
 
           mkdir -p dist
-          cp bazel-bin/src/main dist/kubelet
+          case "${{ matrix.artifact_arch }}" in
+            amd64) cp bazel-bin/src/kubelet_linux_x86_64 dist/kubelet ;;
+            arm64) cp bazel-bin/src/kubelet_linux_arm64  dist/kubelet ;;
+          esac
 
           tar -C dist -czf "$ARTIFACT" kubelet
           sha256sum "$ARTIFACT" > "${ARTIFACT}.sha256"
