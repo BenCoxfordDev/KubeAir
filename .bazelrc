@@ -1,6 +1,6 @@
 build --test_output=errors
 test --test_output=errors
-build --experimental_strict_action_env
+build --incompatible_strict_action_env
 
 # clippy checks
 build --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
@@ -13,3 +13,7 @@ build --output_groups=+rustfmt_checks
 
 # Configuration for building without clippy checks
 build:no_clippy --output_groups=-clippy_checks
+
+# hermetic_cc_toolchain: allow zig to write its cache
+build:linux --sandbox_add_mount_pair=/tmp
+build:macos --sandbox_add_mount_pair=/var/tmp
