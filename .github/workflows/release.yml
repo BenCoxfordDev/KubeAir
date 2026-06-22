@@ -177,7 +177,11 @@ jobs:
           bazelisk-cache: true
           disk-cache: kubeair
           repository-cache: true
-          save-cache: ${{ github.ref == 'refs/heads/main' }}
+          save-cache: false
+
+      - name: Clean Bazel state before rebuild
+        shell: bash
+        run: bazel clean --expunge
 
       - name: Set up just
         uses: extractions/setup-just@v2
