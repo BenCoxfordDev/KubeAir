@@ -1,4 +1,4 @@
-name: Kubeadm E2E
+name: K8s Rust E2E
 
 # Full integration test: provision a real single-node Kubernetes cluster with
 # containerd + kubeadm + Calico eBPF, deploy the kube-air kubelet, and run
@@ -104,7 +104,7 @@ jobs:
             echo "relevant=false" >> "$GITHUB_OUTPUT"
           fi
 
-  kubeadm-e2e:
+  kubernetes-rust-e2e:
     needs: [check-changes]
     if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
