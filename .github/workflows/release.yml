@@ -155,7 +155,7 @@ jobs:
     needs:
       - prepare
       - create_release
-    if: needs.prepare.outputs.should_release == 'true' && (needs.create_release.result == 'success' || needs.create_release.result == 'skipped')
+    if: always() && needs.prepare.outputs.should_release == 'true' && (needs.create_release.result == 'success' || needs.create_release.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
