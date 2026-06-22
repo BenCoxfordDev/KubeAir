@@ -174,10 +174,10 @@ jobs:
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.9.1
         with:
-          bazelisk-cache: true
-          disk-cache: kubeair
+          bazelisk-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && 'false' || 'true' }}
+          disk-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && '' || 'kubeair' }}
           repository-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && 'false' || 'true' }}
-          save-cache: false
+          save-cache: ${{ needs.prepare.outputs.rebuild_assets == 'false' }}
 
       - name: Clean Bazel state before rebuild
         shell: bash
