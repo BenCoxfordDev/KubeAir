@@ -57,5 +57,30 @@ lock-build-image:
   bazel run //hack/build-image:lock_amd64 -- --autofix || true
   bazel run //hack/build-image:lock_arm64 -- --autofix || true
 
+# Build and load the CI build image into the local podman/docker daemon.
+# After running this, use `BUILD_IMAGE=ghcr.io/bencoxforddev/kubeair/build:local just e2e`
+# to run e2e tests against the locally-built image.
+build-image arch="amd64":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  case "{{arch}}" in
+    amd64|x86_64)
+      bazel run //hack/build-image:load_amd64
+      ;;
+    arm64|aarch64)
+      bazel run //hack/build-image:load_arm64
+      ;;
+    *)
+      echo "Unsupported arch: {{arch}}. Use one of: amd64, arm64"
+      exit 1
+      ;;
+  esac
+  echo "Image loaded as ghcr.io/bencoxforddev/kubeair/build:local"
+  echo "Run: just e2e-local"
+
+# Run e2e tests against the locally-built image (requires `just build-image` first).
+e2e-local:
+  BUILD_IMAGE=ghcr.io/bencoxforddev/kubeair/build:local bash hack/e2e/run-e2e.sh
+
 e2e:
   bash hack/e2e/run-e2e.sh

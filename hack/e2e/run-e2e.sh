@@ -65,8 +65,13 @@ log "Repo:     $REPO_ROOT"
 
 # ── Pull image ─────────────────────────────────────────────────────────────────
 
-step "Pulling build image"
-"$CONTAINER_RUNTIME" pull "$BUILD_IMAGE" || log "Pull failed — trying with cached image"
+# Skip pull for locally-built images (tag ends with :local or uses localhost registry).
+if [[ "$BUILD_IMAGE" == *:local || "$BUILD_IMAGE" == localhost/* ]]; then
+  log "Skipping pull for local image: $BUILD_IMAGE"
+else
+  step "Pulling build image"
+  "$CONTAINER_RUNTIME" pull "$BUILD_IMAGE" || log "Pull failed — trying with cached image"
+fi
 
 # ── Run container ──────────────────────────────────────────────────────────────
 

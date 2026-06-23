@@ -19,7 +19,8 @@ packages:
 
   # Build essentials
   - curl
-  - gcc
+  - gcc-14
+  - g++-14
   - git
   - jq
   - libc6-dev

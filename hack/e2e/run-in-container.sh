@@ -53,6 +53,26 @@ if ! command -v bazel >/dev/null 2>&1 && command -v bazelisk >/dev/null 2>&1; th
   log "Linked bazel -> bazelisk"
 fi
 
+# TODO: remove...
+# ── Fix missing unversioned gcc symlinks ──────────────────────────────────────
+# rules_distroless extracts .deb contents without running postinst scripts, so
+# update-alternatives is never called and /usr/bin/gcc is not created.
+# We also handle dangling symlinks left by image layers that point to gcc-14.
+GCC=$(find /usr/bin -maxdepth 1 -name 'gcc-[0-9]*' 2>/dev/null | sort | head -1)
+if [[ -n "$GCC" ]]; then
+  ln -sf "$GCC" /usr/bin/gcc
+  ln -sf "$GCC" /usr/bin/cc
+  log "Linked /usr/bin/gcc -> $GCC"
+else
+  die "No versioned gcc binary (gcc-NN) found in /usr/bin — check build image packages"
+fi
+GPP=$(find /usr/bin -maxdepth 1 -name 'g++-[0-9]*' 2>/dev/null | sort | head -1)
+if [[ -n "$GPP" ]]; then
+  ln -sf "$GPP" /usr/bin/g++
+  ln -sf "$GPP" /usr/bin/c++
+  log "Linked /usr/bin/g++ -> $GPP"
+fi
+
 # ── Build kubelet ──────────────────────────────────────────────────────────────
 
 if [[ "$SKIP_BUILD" != "1" ]]; then

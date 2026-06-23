@@ -1,6 +1,7 @@
 load("@rules_distroless//distroless:defs.bzl", "cacerts")
 load("@rules_img//img:image.bzl", "image_manifest")
 load("@rules_img//img:layer.bzl", "image_layer", "layer_from_tar")
+load("@rules_img//img:load.bzl", "image_load")
 load("@rules_img//img:push.bzl", "image_push")
 
 _LINUX_AMD64 = [
@@ -50,12 +51,27 @@ image_layer(
     target_compatible_with = _LINUX_AMD64,
 )
 
+# rules_distroless extracts package contents without running postinst scripts,
+# so update-alternatives is never called and /usr/bin/gcc is never created.
+# This layer adds the unversioned symlinks that Rust's linker expects.
+image_layer(
+    name = "gcc_symlinks_layer_amd64",
+    symlinks = {
+        "/usr/bin/gcc": "/usr/bin/gcc-14",
+        "/usr/bin/g++": "/usr/bin/g++-14",
+        "/usr/bin/cc": "/usr/bin/gcc-14",
+        "/usr/bin/c++": "/usr/bin/g++-14",
+    },
+    target_compatible_with = _LINUX_AMD64,
+)
+
 image_manifest(
     name = "build_image_amd64",
     base = "@debian_trixie_slim",
     layers = [
         ":packages_layer_amd64",
         ":cacerts_layer",
+        ":gcc_symlinks_layer_amd64",
         ":tools_layer_amd64",
     ],
     target_compatible_with = _LINUX_AMD64,
@@ -82,15 +98,49 @@ image_layer(
     target_compatible_with = _LINUX_ARM64,
 )
 
+# rules_distroless extracts package contents without running postinst scripts,
+# so update-alternatives is never called and /usr/bin/gcc is never created.
+# This layer adds the unversioned symlinks that Rust's linker expects.
+image_layer(
+    name = "gcc_symlinks_layer_arm64",
+    symlinks = {
+        "/usr/bin/gcc": "/usr/bin/gcc-14",
+        "/usr/bin/g++": "/usr/bin/g++-14",
+        "/usr/bin/cc": "/usr/bin/gcc-14",
+        "/usr/bin/c++": "/usr/bin/g++-14",
+    },
+    target_compatible_with = _LINUX_ARM64,
+)
+
 image_manifest(
     name = "build_image_arm64",
     base = "@debian_trixie_slim",
     layers = [
         ":packages_layer_arm64",
         ":cacerts_layer",
+        ":gcc_symlinks_layer_arm64",
         ":tools_layer_arm64",
     ],
     target_compatible_with = _LINUX_ARM64,
+)
+
+# ── Local load targets ───────────────────────────────────────────────────────
+# Tag pattern: ghcr.io/bencoxforddev/kubeair/build:<k8s-major>.<k8s-minor>-<arch>
+# Run `bazel run //hack/build-image:load_amd64` or `load_arm64` to load into
+# the local podman/docker daemon for use with `BUILD_IMAGE=... just e2e`.
+
+image_load(
+    name = "load_amd64",
+    daemon = "podman",
+    image = ":build_image_amd64",
+    tag = "ghcr.io/bencoxforddev/kubeair/build:local",
+)
+
+image_load(
+    name = "load_arm64",
+    daemon = "podman",
+    image = ":build_image_arm64",
+    tag = "ghcr.io/bencoxforddev/kubeair/build:local",
 )
 
 # ── Push targets ─────────────────────────────────────────────────────────────
