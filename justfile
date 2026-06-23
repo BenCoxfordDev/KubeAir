@@ -86,3 +86,14 @@ e2e-local:
 
 e2e:
   bash hack/e2e/run-e2e.sh
+
+# Run upstream Kubernetes Go conformance/e2e tests in a local privileged container.
+# Mirrors the k8s-go-e2e.yml CI workflow.
+# Override env vars as needed, e.g.:
+#   RUN_CONFORMANCE=1 RUN_E2E=0 just go-e2e
+#   UPSTREAM_K8S_VERSION=v1.33.0 just go-e2e
+go-e2e:
+  bash hack/e2e/run-go-e2e.sh
+
+go-e2e-local:
+  BUILD_IMAGE=ghcr.io/bencoxforddev/kubeair/build:local bash hack/e2e/run-go-e2e.sh
