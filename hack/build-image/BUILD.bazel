@@ -1,0 +1,110 @@
+load("@rules_img//img:image.bzl", "image_index", "image_manifest")
+load("@rules_img//img:layer.bzl", "image_layer", "layer_from_tar")
+load("@rules_img//img:push.bzl", "image_push")
+
+# ── amd64 image ──────────────────────────────────────────────────────────────
+
+layer_from_tar(
+    name = "packages_layer_amd64",
+    src = "@build_image_packages_amd64//:flat",
+)
+
+image_layer(
+    name = "tools_layer_amd64",
+    srcs = {
+        "/usr/local/bin/bazelisk": "@bazelisk_linux_amd64//file",
+        "/usr/local/bin/just": "@just_linux_amd64//:just",
+        "/usr/local/bin/kubectl": "@kubectl_linux_amd64//file",
+        "/usr/local/bin/kubeadm": "@kubeadm_linux_amd64//file",
+    },
+)
+
+image_manifest(
+    name = "build_image_amd64",
+    base = "@debian_trixie_slim",
+    layers = [
+        ":packages_layer_amd64",
+        ":tools_layer_amd64",
+    ],
+)
+
+# ── arm64 image ──────────────────────────────────────────────────────────────
+
+layer_from_tar(
+    name = "packages_layer_arm64",
+    src = "@build_image_packages_arm64//:flat",
+)
+
+image_layer(
+    name = "tools_layer_arm64",
+    srcs = {
+        "/usr/local/bin/bazelisk": "@bazelisk_linux_arm64//file",
+        "/usr/local/bin/just": "@just_linux_arm64//:just",
+        "/usr/local/bin/kubectl": "@kubectl_linux_arm64//file",
+        "/usr/local/bin/kubeadm": "@kubeadm_linux_arm64//file",
+    },
+)
+
+image_manifest(
+    name = "build_image_arm64",
+    base = "@debian_trixie_slim",
+    layers = [
+        ":packages_layer_arm64",
+        ":tools_layer_arm64",
+    ],
+)
+
+# ── Multi-arch index ─────────────────────────────────────────────────────────
+
+image_index(
+    name = "build_image",
+    manifests = [
+        ":build_image_amd64",
+        ":build_image_arm64",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# ── Push targets ─────────────────────────────────────────────────────────────
+# Tag pattern: ghcr.io/bencoxforddev/kubeair/build:<k8s-major>.<k8s-minor>
+# The matrix job pushes arch-specific tags; push-index pushes the combined tag.
+
+image_push(
+    name = "push_amd64",
+    image = ":build_image_amd64",
+    registry = "ghcr.io",
+    repository = "bencoxforddev/kubeair/build",
+    tag = "1.33-amd64",
+)
+
+image_push(
+    name = "push_arm64",
+    image = ":build_image_arm64",
+    registry = "ghcr.io",
+    repository = "bencoxforddev/kubeair/build",
+    tag = "1.33-arm64",
+)
+
+image_push(
+    name = "push",
+    image = ":build_image",
+    registry = "ghcr.io",
+    repository = "bencoxforddev/kubeair/build",
+    tag = "1.33",
+)
+
+# Convenience aliases consumed by just lock-build-image
+alias(
+    name = "lock_amd64",
+    actual = "@build_image_packages_amd64//:lock",
+)
+
+alias(
+    name = "lock_arm64",
+    actual = "@build_image_packages_arm64//:lock",
+)
+
+exports_files([
+    "packages_amd64.yaml",
+    "packages_arm64.yaml",
+])

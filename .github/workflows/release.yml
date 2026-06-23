@@ -91,10 +91,6 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           REBUILD_ASSETS="${{ github.event.inputs.rebuild_assets || 'false' }}"
-          # If triggered by a push (Cargo.toml change), treat it as a rebuild request
-          if [[ "${{ github.event_name }}" == 'push' ]]; then
-            REBUILD_ASSETS='true'
-          fi
 
           if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" > /dev/null 2>&1; then
             if [[ "$REBUILD_ASSETS" == 'true' ]]; then

@@ -1,0 +1,41 @@
+version: 1
+
+# Debian Trixie snapshot pinned for reproducibility.
+# To update the snapshot date, change the URL below, delete packages_amd64.lock.json,
+# then regenerate: just lock-build-image
+sources:
+  - channel: trixie main
+    url: https://snapshot.debian.org/archive/debian/20260601T000000Z
+  - channel: trixie-security main
+    url: https://snapshot.debian.org/archive/debian-security/20260601T000000Z
+
+archs:
+  - amd64
+
+packages:
+  # TLS / APT infrastructure
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+  # Build essentials
+  - curl
+  - git
+  - jq
+  - tar
+
+  # Kubernetes node dependencies (needed by kubeadm / kubelet e2e setup)
+  - socat
+  - conntrack
+  - ipset
+  - ipvsadm
+  - ebtables
+  - ethtool
+  - iptables
+
+  # Container runtime
+  - containerd
+
+  # Coverage
+  - lcov

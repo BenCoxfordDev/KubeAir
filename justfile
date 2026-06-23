@@ -52,3 +52,7 @@ verify:
 
 generate-lockfile:
   CARGO_BAZEL_REPIN=1 bazel fetch //...
+
+lock-build-image:
+  bazel run //hack/build-image:lock_amd64 -- --autofix || true
+  bazel run //hack/build-image:lock_arm64 -- --autofix || true
