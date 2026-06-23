@@ -1,3 +1,4 @@
+load("@rules_distroless//distroless:defs.bzl", "cacerts")
 load("@rules_img//img:image.bzl", "image_manifest")
 load("@rules_img//img:layer.bzl", "image_layer", "layer_from_tar")
 load("@rules_img//img:push.bzl", "image_push")
@@ -11,6 +12,22 @@ _LINUX_ARM64 = [
     "@platforms//os:linux",
     "@platforms//cpu:aarch64",
 ]
+
+# ── CA certificate bundle (arch-independent) ────────────────────────────────
+#
+# rules_distroless cacerts extracts /etc/ssl/certs/ca-certificates.crt from the
+# Debian ca-certificates package, ensuring bazelisk and any other TLS client
+# inside the container trusts standard CAs without needing update-ca-certificates.
+
+cacerts(
+    name = "cacerts",
+    package = "@ca_certificates_deb//:data",
+)
+
+layer_from_tar(
+    name = "cacerts_layer",
+    src = ":cacerts",
+)
 
 # ── amd64 image ──────────────────────────────────────────────────────────────
 
@@ -38,6 +55,7 @@ image_manifest(
     base = "@debian_trixie_slim",
     layers = [
         ":packages_layer_amd64",
+        ":cacerts_layer",
         ":tools_layer_amd64",
     ],
     target_compatible_with = _LINUX_AMD64,
@@ -69,6 +87,7 @@ image_manifest(
     base = "@debian_trixie_slim",
     layers = [
         ":packages_layer_arm64",
+        ":cacerts_layer",
         ":tools_layer_arm64",
     ],
     target_compatible_with = _LINUX_ARM64,

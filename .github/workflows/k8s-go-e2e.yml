@@ -51,6 +51,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -108,6 +109,14 @@ jobs:
 
       # ── Run upstream Go tests ──────────────────────────────────────────────────
 
+      - name: Start memory monitor
+        shell: bash
+        run: |
+          chmod +x hack/e2e/memory-monitor.sh
+          bash hack/e2e/memory-monitor.sh /tmp/kubelet.pid /tmp/kubelet-memory.csv 2 &
+          echo $! > /tmp/memory-monitor.pid
+          echo "Memory monitor started (PID $(cat /tmp/memory-monitor.pid))"
+
       - name: Run upstream Kubernetes Go e2e/conformance
         shell: bash
         env:
@@ -124,6 +133,16 @@ jobs:
         run: |
           chmod +x hack/e2e/kubernetes/run-upstream-go-e2e.sh
           bash hack/e2e/kubernetes/run-upstream-go-e2e.sh 2>&1 | tee /tmp/upstream-go-e2e.log
+
+      - name: Stop memory monitor and report
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f /tmp/memory-monitor.pid ]]; then
+            kill "$(cat /tmp/memory-monitor.pid)" 2>/dev/null || true
+          fi
+          chmod +x hack/e2e/memory-report.sh
+          bash hack/e2e/memory-report.sh /tmp/kubelet-memory.csv
 
       # ── Artifacts ─────────────────────────────────────────────────────────────
 
@@ -151,4 +170,5 @@ jobs:
             /tmp/setup-k3s.log
             /tmp/k3s-server.log
             /tmp/kubelet.log
+            /tmp/kubelet-memory.csv
           if-no-files-found: ignore

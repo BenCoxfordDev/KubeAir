@@ -46,6 +46,13 @@ step() { printf '\n[container-entry] ══ %s ══\n' "$*"; }
 
 cd "$KUBEAIR_REPO_PATH"
 
+# ── Ensure bazel resolves to bazelisk ─────────────────────────────────────────
+
+if ! command -v bazel >/dev/null 2>&1 && command -v bazelisk >/dev/null 2>&1; then
+  ln -sf "$(command -v bazelisk)" /usr/local/bin/bazel
+  log "Linked bazel -> bazelisk"
+fi
+
 # ── Build kubelet ──────────────────────────────────────────────────────────────
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
@@ -65,8 +72,13 @@ log "kubelet binary: $KUBELET_BIN ($(du -sh "$KUBELET_BIN" | cut -f1))"
 step "Provisioning k3s cluster"
 
 KUBELET_BIN="$KUBELET_BIN" \
-KUBERNETES_VERSION="$KUBERNETES_VERSION" \
 bash "$KUBEAIR_REPO_PATH/hack/e2e/setup-node-k3s.sh"
+
+# ── Monitor kubelet memory ─────────────────────────────────────────────────────
+
+step "Starting kubelet memory monitor"
+bash "$KUBEAIR_REPO_PATH/hack/e2e/memory-monitor.sh" /tmp/kubelet.pid "$ARTIFACT_DIR/kubelet-memory.csv" 2 &
+MONITOR_PID=$!
 
 # ── Run tests ─────────────────────────────────────────────────────────────────
 
@@ -78,3 +90,8 @@ RUN_UNIT_TESTS="$RUN_UNIT_TESTS" \
 RUN_E2E_TESTS="$RUN_E2E_TESTS" \
 ARTIFACT_DIR="$ARTIFACT_DIR" \
 bash "$KUBEAIR_REPO_PATH/hack/e2e/run-cluster-tests.sh"
+
+# ── Memory report ─────────────────────────────────────────────────────────────
+
+kill "$MONITOR_PID" 2>/dev/null || true
+bash "$KUBEAIR_REPO_PATH/hack/e2e/memory-report.sh" "$ARTIFACT_DIR/kubelet-memory.csv"

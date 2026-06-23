@@ -175,6 +175,7 @@ nohup "$KUBELET_BIN" \
   >/tmp/kubelet.log 2>&1 &
 
 KUBELET_PID=$!
+echo "$KUBELET_PID" > /tmp/kubelet.pid
 log "kube-air kubelet started (PID $KUBELET_PID)"
 
 # ── Wait for node Ready ────────────────────────────────────────────────────────

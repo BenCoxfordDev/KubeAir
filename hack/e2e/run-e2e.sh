@@ -70,7 +70,7 @@ step "Pulling build image"
 
 # ── Run container ──────────────────────────────────────────────────────────────
 
-ARTIFACT_DIR="/tmp/kubeair-e2e-artifacts-$(date +%Y%m%dT%H%M%S)"
+ARTIFACT_DIR="${HOME}/.kubeair/e2e-artifacts/$(date +%Y%m%dT%H%M%S)"
 mkdir -p "$ARTIFACT_DIR"
 
 step "Launching container (--privileged)"

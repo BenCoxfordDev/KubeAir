@@ -54,6 +54,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 env:
   RUN_UNIT_TESTS:     ${{ inputs.run_unit_tests     || '1' }}
@@ -135,6 +136,14 @@ jobs:
 
       # ── Run tests ──────────────────────────────────────────────────────────────
 
+      - name: Start memory monitor
+        shell: bash
+        run: |
+          chmod +x hack/e2e/memory-monitor.sh
+          bash hack/e2e/memory-monitor.sh /tmp/kubelet.pid /tmp/kubelet-memory.csv 2 &
+          echo $! > /tmp/memory-monitor.pid
+          echo "Memory monitor started (PID $(cat /tmp/memory-monitor.pid))"
+
       - name: Run kube-air test suites
         shell: bash
         run: |
@@ -145,6 +154,16 @@ jobs:
           RUN_E2E_TESTS="$RUN_E2E_TESTS" \
           ARTIFACT_DIR="$ARTIFACT_DIR" \
           bash hack/e2e/run-cluster-tests.sh 2>&1 | tee /tmp/run-cluster-tests.log
+
+      - name: Stop memory monitor and report
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f /tmp/memory-monitor.pid ]]; then
+            kill "$(cat /tmp/memory-monitor.pid)" 2>/dev/null || true
+          fi
+          chmod +x hack/e2e/memory-report.sh
+          bash hack/e2e/memory-report.sh /tmp/kubelet-memory.csv
 
       # ── Artifacts ─────────────────────────────────────────────────────────────
 
@@ -181,4 +200,5 @@ jobs:
             /tmp/k3s-server.log
             /tmp/kubelet.log
             /tmp/containerd.log
+            /tmp/kubelet-memory.csv
           if-no-files-found: ignore

@@ -79,6 +79,23 @@ http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_
 
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+# ca-certificates deb for the rules_distroless cacerts rule.
+# This is an _all.deb (arch-independent); same package and sha256 for amd64 and arm64.
+# Sourced from the same snapshot pinned in packages.yaml so it stays in sync with the image.
+http_archive(
+    name = "ca_certificates_deb",
+    build_file_content = """
+filegroup(
+    name = "data",
+    srcs = glob(["data.tar.xz", "data.tar.zst", "data.tar.gz"]),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184",
+    type = ".deb",
+    urls = ["https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/c/ca-certificates/ca-certificates_20250419_all.deb"],
+)
+
 http_file(
     name = "bazelisk_linux_amd64",
     executable = True,
