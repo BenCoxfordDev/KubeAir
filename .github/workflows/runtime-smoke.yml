@@ -109,58 +109,28 @@ jobs:
           EOF
 
           # Ensure containerd service is started
-          echo "Starting containerd service..."
-          systemctl start containerd 2>&1 || {
-            echo "systemctl start failed, starting manually..."
-            mkdir -p /run/containerd
-            nohup containerd >/tmp/containerd.log 2>&1 &
-          }
-          
+          echo "Starting containerd..."
+          mkdir -p /run/containerd /var/lib/containerd /etc/containerd
+          if [[ ! -f /etc/containerd/config.toml ]]; then
+            containerd config default > /etc/containerd/config.toml
+          fi
+          nohup containerd >/tmp/containerd.log 2>&1 &
+
           # Wait for containerd socket file to exist
           echo "Waiting for containerd socket to be ready..."
-          max_attempts=60
-          attempt=0
-          while [[ ! -S /run/containerd/containerd.sock ]]; do
-            if [[ $attempt -ge $max_attempts ]]; then
-              echo "ERROR: Containerd socket failed to appear after $max_attempts attempts"
-              echo "Systemd status:"
-              systemctl status containerd 2>&1 || true
-              echo "Containerd logs (last 100 lines):"
-              tail -100 /tmp/containerd.log 2>&1 || true
-              ls -la /run/containerd/ 2>&1 || true
-              exit 1
-            fi
-            echo "Attempt $((attempt + 1))/$max_attempts: Waiting for socket..."
-            sleep 1
-            ((attempt++))
-          done
-          
-          # Verify ctr can connect to the socket
-          echo "Socket ready. Verifying ctr connectivity..."
-          for i in {1..10}; do
-            if timeout 2 ctr version >/dev/null 2>&1; then
-              echo "✓ Containerd is ready"
+          for i in $(seq 1 30); do
+            if [[ -S /run/containerd/containerd.sock ]]; then
+              echo "Socket ready."
               break
             fi
-            if [[ $i -eq 10 ]]; then
-              echo "ERROR: ctr version failed even though socket exists"
-              echo "Socket file status:"
-              ls -la /run/containerd/containerd.sock
-              echo "Systemd status:"
-              systemctl status containerd 2>&1 || true
-              echo "Containerd logs (last 100 lines):"
-              tail -100 /tmp/containerd.log 2>&1 || true
+            if [[ $i -eq 30 ]]; then
+              echo "ERROR: containerd socket never appeared after 30s"
+              tail -50 /tmp/containerd.log || true
               exit 1
             fi
-            echo "  ctr attempt $i/10, retrying..."
+            echo "Attempt $i/30: Waiting for socket..."
             sleep 1
           done
-          
-          ctr version
-          
-          # Verify CNI plugins
-          echo "✓ CNI plugins available:"
-          ls -1 /opt/cni/bin | grep -E '^(bridge|host-local|portmap)$'
 
       - name: Run conformance smoke suite
         shell: bash
