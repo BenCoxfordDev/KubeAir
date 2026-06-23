@@ -18,6 +18,7 @@ packages:
   - lsb-release
 
   # Build essentials
+  - cmake
   - curl
   - gcc-14
   - g++-14
