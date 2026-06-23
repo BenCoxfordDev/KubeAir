@@ -25,6 +25,7 @@ packages:
   - jq
   - libc6-dev
   - libstdc++-14-dev
+  - make
   - pkg-config
   - protobuf-compiler
   - tar

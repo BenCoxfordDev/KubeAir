@@ -53,7 +53,6 @@ if ! command -v bazel >/dev/null 2>&1 && command -v bazelisk >/dev/null 2>&1; th
   log "Linked bazel -> bazelisk"
 fi
 
-# TODO: remove...
 # ── Fix missing unversioned gcc symlinks ──────────────────────────────────────
 # rules_distroless extracts .deb contents without running postinst scripts, so
 # update-alternatives is never called and /usr/bin/gcc is not created.
@@ -77,7 +76,7 @@ fi
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
   step "Building kube-air kubelet"
-  just build native
+  BAZEL_EXTRA_FLAGS="--config=container" just build native
 else
   log "Skipping build (SKIP_BUILD=1)"
 fi

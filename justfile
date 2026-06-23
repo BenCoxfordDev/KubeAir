@@ -7,15 +7,17 @@ build arch="native":
   #!/usr/bin/env bash
   set -euo pipefail
 
+  EXTRA_FLAGS="${BAZEL_EXTRA_FLAGS:-}"
+
   case "{{arch}}" in
     amd64|x86_64)
-      bazel build //src:kubelet_linux_x86_64
+      bazel build //src:kubelet_linux_x86_64 $EXTRA_FLAGS
       ;;
     arm64|aarch64)
-      bazel build //src:kubelet_linux_arm64
+      bazel build //src:kubelet_linux_arm64 $EXTRA_FLAGS
       ;;
     native)
-      bazel build //src:main
+      bazel build //src:main $EXTRA_FLAGS
       ;;
     *)
       echo "Unsupported arch: {{arch}}. Use one of: native, amd64, arm64"
