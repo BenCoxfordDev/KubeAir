@@ -87,7 +87,7 @@ http_archive(
     build_file_content = """
 filegroup(
     name = "data",
-    srcs = glob(["data.tar.xz", "data.tar.zst", "data.tar.gz"]),
+    srcs = glob(["data.tar.xz", "data.tar.zst", "data.tar.gz"], allow_empty = True),
     visibility = ["//visibility:public"],
 )
 """,
