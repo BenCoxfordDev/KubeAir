@@ -2757,6 +2757,246 @@
 			"arch": "amd64",
 			"dependencies": [
 				{
+					"key": "libc6-dev_2.41-12-p-deb13u3_amd64",
+					"name": "libc6-dev",
+					"version": "2.41-12+deb13u3"
+				},
+				{
+					"key": "rpcsvc-proto_1.4.3-1_amd64",
+					"name": "rpcsvc-proto",
+					"version": "1.4.3-1"
+				},
+				{
+					"key": "libc6_2.41-12-p-deb13u3_amd64",
+					"name": "libc6",
+					"version": "2.41-12+deb13u3"
+				},
+				{
+					"key": "libgcc-s1_14.2.0-19_amd64",
+					"name": "libgcc-s1",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "gcc-14-base_14.2.0-19_amd64",
+					"name": "gcc-14-base",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libcrypt-dev_1-4.4.38-1_amd64",
+					"name": "libcrypt-dev",
+					"version": "1:4.4.38-1"
+				},
+				{
+					"key": "libcrypt1_1-4.4.38-1_amd64",
+					"name": "libcrypt1",
+					"version": "1:4.4.38-1"
+				},
+				{
+					"key": "linux-libc-dev_6.12.86-1_amd64",
+					"name": "linux-libc-dev",
+					"version": "6.12.86-1"
+				},
+				{
+					"key": "libc-dev-bin_2.41-12-p-deb13u3_amd64",
+					"name": "libc-dev-bin",
+					"version": "2.41-12+deb13u3"
+				},
+				{
+					"key": "libstdc-p--p-6_14.2.0-19_amd64",
+					"name": "libstdc++6",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libgcc-14-dev_14.2.0-19_amd64",
+					"name": "libgcc-14-dev",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libquadmath0_14.2.0-19_amd64",
+					"name": "libquadmath0",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libhwasan0_14.2.0-19_amd64",
+					"name": "libhwasan0",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libubsan1_14.2.0-19_amd64",
+					"name": "libubsan1",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libtsan2_14.2.0-19_amd64",
+					"name": "libtsan2",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "liblsan0_14.2.0-19_amd64",
+					"name": "liblsan0",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libasan8_14.2.0-19_amd64",
+					"name": "libasan8",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libatomic1_14.2.0-19_amd64",
+					"name": "libatomic1",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libitm1_14.2.0-19_amd64",
+					"name": "libitm1",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libgomp1_14.2.0-19_amd64",
+					"name": "libgomp1",
+					"version": "14.2.0-19"
+				}
+			],
+			"key": "libstdc-p--p--14-dev_14.2.0-19_amd64",
+			"name": "libstdc++-14-dev",
+			"sha256": "4b962fac5f1af0bd8b1b3f97e0f47b9d8e9a79e88802143f00ebfbd78ad87a7b",
+			"urls": [
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/g/gcc-14/libstdc++-14-dev_14.2.0-19_amd64.deb"
+			],
+			"version": "14.2.0-19"
+		},
+		{
+			"arch": "amd64",
+			"dependencies": [
+				{
+					"key": "pkgconf-bin_1.8.1-4_amd64",
+					"name": "pkgconf-bin",
+					"version": "1.8.1-4"
+				},
+				{
+					"key": "libpkgconf3_1.8.1-4_amd64",
+					"name": "libpkgconf3",
+					"version": "1.8.1-4"
+				},
+				{
+					"key": "libc6_2.41-12-p-deb13u3_amd64",
+					"name": "libc6",
+					"version": "2.41-12+deb13u3"
+				},
+				{
+					"key": "libgcc-s1_14.2.0-19_amd64",
+					"name": "libgcc-s1",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "gcc-14-base_14.2.0-19_amd64",
+					"name": "gcc-14-base",
+					"version": "14.2.0-19"
+				}
+			],
+			"key": "pkgconf_1.8.1-4_amd64",
+			"name": "pkgconf",
+			"sha256": "f1fcad470ca3ac80b4a0f4af6f03cd215089473996b07e508b3ee342bbb11af7",
+			"urls": [
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/p/pkgconf/pkgconf_1.8.1-4_amd64.deb"
+			],
+			"version": "1.8.1-4"
+		},
+		{
+			"arch": "amd64",
+			"dependencies": [],
+			"key": "pkgconf-bin_1.8.1-4_amd64",
+			"name": "pkgconf-bin",
+			"sha256": "54efef2aef4db5fcb5e0f5b7746465000c6a779b06f3686d0ec3d2a901b20aeb",
+			"urls": [
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/p/pkgconf/pkgconf-bin_1.8.1-4_amd64.deb"
+			],
+			"version": "1.8.1-4"
+		},
+		{
+			"arch": "amd64",
+			"dependencies": [],
+			"key": "libpkgconf3_1.8.1-4_amd64",
+			"name": "libpkgconf3",
+			"sha256": "85087cd04e57fd4ab7d6e816d348c335047823ab60c78878336b74f07b352ca1",
+			"urls": [
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/p/pkgconf/libpkgconf3_1.8.1-4_amd64.deb"
+			],
+			"version": "1.8.1-4"
+		},
+		{
+			"arch": "amd64",
+			"dependencies": [
+				{
+					"key": "libstdc-p--p-6_14.2.0-19_amd64",
+					"name": "libstdc++6",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libgcc-s1_14.2.0-19_amd64",
+					"name": "libgcc-s1",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libc6_2.41-12-p-deb13u3_amd64",
+					"name": "libc6",
+					"version": "2.41-12+deb13u3"
+				},
+				{
+					"key": "gcc-14-base_14.2.0-19_amd64",
+					"name": "gcc-14-base",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "libprotoc32t64_3.21.12-11_amd64",
+					"name": "libprotoc32t64",
+					"version": "3.21.12-11"
+				},
+				{
+					"key": "libprotobuf32t64_3.21.12-11_amd64",
+					"name": "libprotobuf32t64",
+					"version": "3.21.12-11"
+				},
+				{
+					"key": "zlib1g_1-1.3.dfsg-p-really1.3.1-1-p-b1_amd64",
+					"name": "zlib1g",
+					"version": "1:1.3.dfsg+really1.3.1-1+b1"
+				}
+			],
+			"key": "protobuf-compiler_3.21.12-11_amd64",
+			"name": "protobuf-compiler",
+			"sha256": "5485ced95aadddf07746dec3d7c2739b0b53e45b171649e2906b1b725060a1e9",
+			"urls": [
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/p/protobuf/protobuf-compiler_3.21.12-11_amd64.deb"
+			],
+			"version": "3.21.12-11"
+		},
+		{
+			"arch": "amd64",
+			"dependencies": [],
+			"key": "libprotoc32t64_3.21.12-11_amd64",
+			"name": "libprotoc32t64",
+			"sha256": "0e3de8c7e9eb9a194989c4ae8f0fffd616b2a76f49f59457c8081bbccf69c2b9",
+			"urls": [
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/p/protobuf/libprotoc32t64_3.21.12-11_amd64.deb"
+			],
+			"version": "3.21.12-11"
+		},
+		{
+			"arch": "amd64",
+			"dependencies": [],
+			"key": "libprotobuf32t64_3.21.12-11_amd64",
+			"name": "libprotobuf32t64",
+			"sha256": "a7e15ca09eabf1011b25ec25f6623a7bf6016a893a206a473875c7c7aaebe20c",
+			"urls": [
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/p/protobuf/libprotobuf32t64_3.21.12-11_amd64.deb"
+			],
+			"version": "3.21.12-11"
+		},
+		{
+			"arch": "amd64",
+			"dependencies": [
+				{
 					"key": "libselinux1_3.8.1-1_amd64",
 					"name": "libselinux1",
 					"version": "3.8.1-1"

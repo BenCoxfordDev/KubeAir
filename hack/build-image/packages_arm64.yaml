@@ -23,6 +23,9 @@ packages:
   - git
   - jq
   - libc6-dev
+  - libstdc++-14-dev
+  - pkg-config
+  - protobuf-compiler
   - tar
   - xz-utils
 

@@ -81,7 +81,7 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 # ca-certificates deb for the rules_distroless cacerts rule.
 # This is an _all.deb (arch-independent); same package and sha256 for amd64 and arm64.
-# Sourced from the same snapshot pinned in packages.yaml so it stays in sync with the image.
+# Sourced from the same snapshot pinned in packages_amd64.yaml / packages_arm64.yaml.
 http_archive(
     name = "ca_certificates_deb",
     build_file_content = """

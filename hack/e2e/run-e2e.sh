@@ -75,12 +75,15 @@ mkdir -p "$ARTIFACT_DIR"
 
 step "Launching container (--privileged)"
 
+mkdir -p "${HOME}/.cache/bazel"
+
 "$CONTAINER_RUNTIME" run \
   --rm \
   --privileged \
   --network=host \
   -v "$REPO_ROOT:/workspace:z" \
   -v "$ARTIFACT_DIR:/artifacts:z" \
+  -v "${HOME}/.cache/bazel:/root/.cache/bazel:z" \
   -e RUN_UNIT_TESTS="$RUN_UNIT_TESTS" \
   -e RUN_E2E_TESTS="$RUN_E2E_TESTS" \
   -e RESET_EXISTING="$RESET_EXISTING" \
