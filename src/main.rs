@@ -21,6 +21,8 @@ limitations under the License.
 
 // Use jemalloc as the global allocator to reduce memory fragmentation from
 // glibc's per-thread arena model, which inflates RSS by 100MB+ at 30+ threads.
+// Disabled via --no-default-features for fast cross-compile dev builds.
+#[cfg(feature = "jemalloc")]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 

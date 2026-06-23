@@ -17,3 +17,9 @@ build:no_clippy --output_groups=-clippy_checks
 # hermetic_cc_toolchain: allow zig to write its cache
 build:linux --sandbox_add_mount_pair=/tmp
 build:macos --sandbox_add_mount_pair=/var/tmp
+
+# On macOS, cap parallelism to reduce peak memory pressure.
+# jemalloc's C compilation (tikv-jemalloc-sys) is killed by the OOM
+# killer when too many Bazel sandbox processes run concurrently.
+build:macos --jobs=8
+build:macos --local_ram_resources=HOST_RAM*0.6

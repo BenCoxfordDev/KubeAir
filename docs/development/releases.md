@@ -67,7 +67,7 @@ Monitor these resources for changes that affect kubelet behaviour:
 - [Kubernetes Changelog](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/) — scan `kubelet` section for each release
 - [KEP tracker](https://kep.k8s.io/) — filter by SIG-Node for upcoming kubelet features
 - [k8s-openapi releases](https://github.com/Arnavion/k8s-openapi/releases) — signals when new API types are available
-- [kube-rs releases](https://github.com/kube-rs/kube/releases) — client library updates
+- [kubeair releases](https://github.com/BenCoxfordDev/kubeair/releases) — client library updates
 
 Subscribe to `kubernetes-dev` digest and SIG-Node meeting notes to stay ahead of API deprecations.
 

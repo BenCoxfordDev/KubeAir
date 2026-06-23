@@ -102,7 +102,10 @@ resolve_release_version() {
   fi
 
   local detected
-  detected="$(kubectl --kubeconfig "$KUBECONFIG" version -o jsonpath='{.serverVersion.gitVersion}' 2>/dev/null || true)"
+  # 'kubectl version -o json' is reliable across kubectl versions;
+  # '-o jsonpath' on 'version' varies between releases.
+  detected="$(kubectl --kubeconfig "$KUBECONFIG" version -o json 2>/dev/null \
+    | jq -r '.serverVersion.gitVersion // empty' 2>/dev/null || true)"
   [[ -n "$detected" ]] || die "Could not detect cluster server version; set UPSTREAM_K8S_VERSION"
   normalize_version "$detected" || die "Cluster version is not a supported semver: $detected"
 }
@@ -116,11 +119,17 @@ K8S_RELEASE="$(resolve_release_version "$UPSTREAM_K8S_VERSION")"
 log "Using upstream release: $K8S_RELEASE"
 
 WORK_DIR="/tmp/k8s-upstream-e2e-${K8S_RELEASE}"
-TARBALL="$WORK_DIR/kubernetes-test-linux-amd64.tar.gz"
+_host_arch="$(uname -m)"
+case "$_host_arch" in
+  aarch64|arm64) _test_arch="arm64" ;;
+  x86_64)        _test_arch="amd64" ;;
+  *) die "Unsupported architecture: $_host_arch" ;;
+esac
+TARBALL="$WORK_DIR/kubernetes-test-linux-${_test_arch}.tar.gz"
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
 
-TEST_URL="https://dl.k8s.io/release/${K8S_RELEASE}/kubernetes-test-linux-amd64.tar.gz"
+TEST_URL="https://dl.k8s.io/release/${K8S_RELEASE}/kubernetes-test-linux-${_test_arch}.tar.gz"
 log "Downloading: $TEST_URL"
 curl -fL --retry 5 --retry-delay 2 "$TEST_URL" -o "$TARBALL"
 
