@@ -116,14 +116,17 @@ image_push(
 )
 
 # Convenience aliases consumed by just lock-build-image
+# Tagged manual so `bazel build //...` does not trigger package index resolution.
 alias(
     name = "lock_amd64",
     actual = "@build_image_packages_amd64//:lock",
+    tags = ["manual"],
 )
 
 alias(
     name = "lock_arm64",
     actual = "@build_image_packages_arm64//:lock",
+    tags = ["manual"],
 )
 
 exports_files([
