@@ -561,9 +561,9 @@
 					"version": "1.51-4"
 				},
 				{
-					"key": "libgcrypt20_1.11.0-7-p-deb13u1_amd64",
+					"key": "libgcrypt20_1.11.0-7_amd64",
 					"name": "libgcrypt20",
-					"version": "1.11.0-7+deb13u1"
+					"version": "1.11.0-7"
 				},
 				{
 					"key": "libassuan9_3.0.2-2_amd64",
@@ -686,9 +686,9 @@
 					"version": "5.3.28+dfsg2-9"
 				},
 				{
-					"key": "libgnutls30t64_3.8.9-3-p-deb13u4_amd64",
+					"key": "libgnutls30t64_3.8.9-3-p-deb13u3_amd64",
 					"name": "libgnutls30t64",
-					"version": "3.8.9-3+deb13u4"
+					"version": "3.8.9-3+deb13u3"
 				},
 				{
 					"key": "libunistring5_1.3-2_amd64",
@@ -924,13 +924,13 @@
 		{
 			"arch": "amd64",
 			"dependencies": [],
-			"key": "libgcrypt20_1.11.0-7-p-deb13u1_amd64",
+			"key": "libgcrypt20_1.11.0-7_amd64",
 			"name": "libgcrypt20",
-			"sha256": "f0eb41f8cb40896e0822e9ab65611e8383c12b721c76c54764f744abb4a8c247",
+			"sha256": "2e228206277d1262e76d5a78098f205edd80ee2c3ee1822ef42cdfdbb98620f9",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/libg/libgcrypt20/libgcrypt20_1.11.0-7+deb13u1_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/libg/libgcrypt20/libgcrypt20_1.11.0-7_amd64.deb"
 			],
-			"version": "1.11.0-7+deb13u1"
+			"version": "1.11.0-7"
 		},
 		{
 			"arch": "amd64",
@@ -1111,13 +1111,13 @@
 		{
 			"arch": "amd64",
 			"dependencies": [],
-			"key": "libgnutls30t64_3.8.9-3-p-deb13u4_amd64",
+			"key": "libgnutls30t64_3.8.9-3-p-deb13u3_amd64",
 			"name": "libgnutls30t64",
-			"sha256": "18a8bdfd91c7e3bcb01719d55a2b56849c7160b34f1f52b1c4fdfdd41bf1352b",
+			"sha256": "39176d53c898835e542870a31e752f26681ba42bd15237c9f03672d12249389c",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/g/gnutls28/libgnutls30t64_3.8.9-3+deb13u4_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/g/gnutls28/libgnutls30t64_3.8.9-3+deb13u3_amd64.deb"
 			],
-			"version": "3.8.9-3+deb13u4"
+			"version": "3.8.9-3+deb13u3"
 		},
 		{
 			"arch": "amd64",
@@ -1441,9 +1441,9 @@
 					"version": "2:6.3.0+dfsg-3"
 				},
 				{
-					"key": "libgnutls30t64_3.8.9-3-p-deb13u4_amd64",
+					"key": "libgnutls30t64_3.8.9-3-p-deb13u3_amd64",
 					"name": "libgnutls30t64",
-					"version": "3.8.9-3+deb13u4"
+					"version": "3.8.9-3+deb13u3"
 				},
 				{
 					"key": "libunistring5_1.3-2_amd64",
@@ -1481,9 +1481,9 @@
 					"version": "1.8.0-1"
 				},
 				{
-					"key": "libnghttp2-14_1.64.0-1.1-p-deb13u1_amd64",
+					"key": "libnghttp2-14_1.64.0-1.1_amd64",
 					"name": "libnghttp2-14",
-					"version": "1.64.0-1.1+deb13u1"
+					"version": "1.64.0-1.1"
 				},
 				{
 					"key": "libldap2_2.6.10-p-dfsg-1_amd64",
@@ -1506,19 +1506,19 @@
 					"version": "5.3.28+dfsg2-9"
 				},
 				{
-					"key": "libgssapi-krb5-2_1.21.3-5-p-deb13u1_amd64",
+					"key": "libgssapi-krb5-2_1.21.3-5_amd64",
 					"name": "libgssapi-krb5-2",
-					"version": "1.21.3-5+deb13u1"
+					"version": "1.21.3-5"
 				},
 				{
-					"key": "libkrb5support0_1.21.3-5-p-deb13u1_amd64",
+					"key": "libkrb5support0_1.21.3-5_amd64",
 					"name": "libkrb5support0",
-					"version": "1.21.3-5+deb13u1"
+					"version": "1.21.3-5"
 				},
 				{
-					"key": "libk5crypto3_1.21.3-5-p-deb13u1_amd64",
+					"key": "libk5crypto3_1.21.3-5_amd64",
 					"name": "libk5crypto3",
-					"version": "1.21.3-5+deb13u1"
+					"version": "1.21.3-5"
 				},
 				{
 					"key": "libcom-err2_1.47.2-3-p-b11_amd64",
@@ -1526,9 +1526,9 @@
 					"version": "1.47.2-3+b11"
 				},
 				{
-					"key": "libkrb5-3_1.21.3-5-p-deb13u1_amd64",
+					"key": "libkrb5-3_1.21.3-5_amd64",
 					"name": "libkrb5-3",
-					"version": "1.21.3-5+deb13u1"
+					"version": "1.21.3-5"
 				},
 				{
 					"key": "libkeyutils1_1.6.3-6_amd64",
@@ -1607,46 +1607,46 @@
 		{
 			"arch": "amd64",
 			"dependencies": [],
-			"key": "libnghttp2-14_1.64.0-1.1-p-deb13u1_amd64",
+			"key": "libnghttp2-14_1.64.0-1.1_amd64",
 			"name": "libnghttp2-14",
-			"sha256": "896cb217537c09251fb909b8541349010ac279d802d871e98c06a62a2c67ce2c",
+			"sha256": "669cf255390473a9d85ccec07e84dc4f0c8df881327d203bddbecee1cafb107b",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/n/nghttp2/libnghttp2-14_1.64.0-1.1+deb13u1_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/n/nghttp2/libnghttp2-14_1.64.0-1.1_amd64.deb"
 			],
-			"version": "1.64.0-1.1+deb13u1"
+			"version": "1.64.0-1.1"
 		},
 		{
 			"arch": "amd64",
 			"dependencies": [],
-			"key": "libgssapi-krb5-2_1.21.3-5-p-deb13u1_amd64",
+			"key": "libgssapi-krb5-2_1.21.3-5_amd64",
 			"name": "libgssapi-krb5-2",
-			"sha256": "30847c1fde4240567d7ed3aeab4f655dd591203758b857e85e824045aae70299",
+			"sha256": "53678c63919fc717816941947a9d275be8d6cb101a3753ae8fda0cf6e752d9d7",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/k/krb5/libgssapi-krb5-2_1.21.3-5+deb13u1_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/k/krb5/libgssapi-krb5-2_1.21.3-5_amd64.deb"
 			],
-			"version": "1.21.3-5+deb13u1"
+			"version": "1.21.3-5"
 		},
 		{
 			"arch": "amd64",
 			"dependencies": [],
-			"key": "libkrb5support0_1.21.3-5-p-deb13u1_amd64",
+			"key": "libkrb5support0_1.21.3-5_amd64",
 			"name": "libkrb5support0",
-			"sha256": "3a0acd8b37955c0e102c756b52c97df2a31f67b96453c35dab70df218d309117",
+			"sha256": "15254b79d38d3f3abdc9385ccd56e0a84fc67738ec5af1fcd5e2723b0ef38b92",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/k/krb5/libkrb5support0_1.21.3-5+deb13u1_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/k/krb5/libkrb5support0_1.21.3-5_amd64.deb"
 			],
-			"version": "1.21.3-5+deb13u1"
+			"version": "1.21.3-5"
 		},
 		{
 			"arch": "amd64",
 			"dependencies": [],
-			"key": "libk5crypto3_1.21.3-5-p-deb13u1_amd64",
+			"key": "libk5crypto3_1.21.3-5_amd64",
 			"name": "libk5crypto3",
-			"sha256": "7da07ee674b47f1f0be7cc89317c25310086a1f1761217d0f72e6ae2c5a69b84",
+			"sha256": "3368c4b8fd7f0172ba0f1cbd31d150d9ab3c67cc3f4bc3a4c77d895ade0701c4",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/k/krb5/libk5crypto3_1.21.3-5+deb13u1_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/k/krb5/libk5crypto3_1.21.3-5_amd64.deb"
 			],
-			"version": "1.21.3-5+deb13u1"
+			"version": "1.21.3-5"
 		},
 		{
 			"arch": "amd64",
@@ -1662,13 +1662,13 @@
 		{
 			"arch": "amd64",
 			"dependencies": [],
-			"key": "libkrb5-3_1.21.3-5-p-deb13u1_amd64",
+			"key": "libkrb5-3_1.21.3-5_amd64",
 			"name": "libkrb5-3",
-			"sha256": "47d71d6a7f2e59b9bae5f89602397594805113b95889ad18fa703cd53abafc97",
+			"sha256": "7e286fff31330a174a0df0ddfee19e388d7b1825f684aa55a3b62bcab5737c9a",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/k/krb5/libkrb5-3_1.21.3-5+deb13u1_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/k/krb5/libkrb5-3_1.21.3-5_amd64.deb"
 			],
-			"version": "1.21.3-5+deb13u1"
+			"version": "1.21.3-5"
 		},
 		{
 			"arch": "amd64",
@@ -2353,9 +2353,9 @@
 					"version": "2:6.3.0+dfsg-3"
 				},
 				{
-					"key": "libgnutls30t64_3.8.9-3-p-deb13u4_amd64",
+					"key": "libgnutls30t64_3.8.9-3-p-deb13u3_amd64",
 					"name": "libgnutls30t64",
-					"version": "3.8.9-3+deb13u4"
+					"version": "3.8.9-3+deb13u3"
 				},
 				{
 					"key": "libunistring5_1.3-2_amd64",
@@ -2403,9 +2403,9 @@
 					"version": "1.8.0-1"
 				},
 				{
-					"key": "libnghttp2-14_1.64.0-1.1-p-deb13u1_amd64",
+					"key": "libnghttp2-14_1.64.0-1.1_amd64",
 					"name": "libnghttp2-14",
-					"version": "1.64.0-1.1+deb13u1"
+					"version": "1.64.0-1.1"
 				},
 				{
 					"key": "libldap2_2.6.10-p-dfsg-1_amd64",
@@ -2423,19 +2423,19 @@
 					"version": "2.1.28+dfsg1-9"
 				},
 				{
-					"key": "libgssapi-krb5-2_1.21.3-5-p-deb13u1_amd64",
+					"key": "libgssapi-krb5-2_1.21.3-5_amd64",
 					"name": "libgssapi-krb5-2",
-					"version": "1.21.3-5+deb13u1"
+					"version": "1.21.3-5"
 				},
 				{
-					"key": "libkrb5support0_1.21.3-5-p-deb13u1_amd64",
+					"key": "libkrb5support0_1.21.3-5_amd64",
 					"name": "libkrb5support0",
-					"version": "1.21.3-5+deb13u1"
+					"version": "1.21.3-5"
 				},
 				{
-					"key": "libk5crypto3_1.21.3-5-p-deb13u1_amd64",
+					"key": "libk5crypto3_1.21.3-5_amd64",
 					"name": "libk5crypto3",
-					"version": "1.21.3-5+deb13u1"
+					"version": "1.21.3-5"
 				},
 				{
 					"key": "libcom-err2_1.47.2-3-p-b11_amd64",
@@ -2443,9 +2443,9 @@
 					"version": "1.47.2-3+b11"
 				},
 				{
-					"key": "libkrb5-3_1.21.3-5-p-deb13u1_amd64",
+					"key": "libkrb5-3_1.21.3-5_amd64",
 					"name": "libkrb5-3",
-					"version": "1.21.3-5+deb13u1"
+					"version": "1.21.3-5"
 				},
 				{
 					"key": "libkeyutils1_1.6.3-6_amd64",
@@ -2583,7 +2583,7 @@
 			"name": "libngtcp2-crypto-gnutls8",
 			"sha256": "2a7f109c0c4db6a800e4661c5e5e34e1f1f83c8162482276183d1ada9da7c96c",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/n/ngtcp2/libngtcp2-crypto-gnutls8_1.11.0-1+deb13u1_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/n/ngtcp2/libngtcp2-crypto-gnutls8_1.11.0-1+deb13u1_amd64.deb"
 			],
 			"version": "1.11.0-1+deb13u1"
 		},
@@ -2594,7 +2594,7 @@
 			"name": "libngtcp2-16",
 			"sha256": "627eec81ebbd48c4e6091f5cd9dc5070b792b7075000eed60ab08c7daa961caf",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/n/ngtcp2/libngtcp2-16_1.11.0-1+deb13u1_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/n/ngtcp2/libngtcp2-16_1.11.0-1+deb13u1_amd64.deb"
 			],
 			"version": "1.11.0-1+deb13u1"
 		},
@@ -2691,9 +2691,9 @@
 					"version": "1:4.4.38-1"
 				},
 				{
-					"key": "linux-libc-dev_6.12.90-2_amd64",
+					"key": "linux-libc-dev_6.12.86-1_amd64",
 					"name": "linux-libc-dev",
-					"version": "6.12.90-2"
+					"version": "6.12.86-1"
 				},
 				{
 					"key": "libc-dev-bin_2.41-12-p-deb13u3_amd64",
@@ -2734,13 +2734,13 @@
 		{
 			"arch": "amd64",
 			"dependencies": [],
-			"key": "linux-libc-dev_6.12.90-2_amd64",
+			"key": "linux-libc-dev_6.12.86-1_amd64",
 			"name": "linux-libc-dev",
-			"sha256": "13dd621af5286c8e807536458f59fb8e37c53ac1e3e6a42b9374c0953343c3b7",
+			"sha256": "b3d0d91cda2905cd5c201c8bb3d2369e10cc03a19ea432217a62e54480d6446a",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/l/linux/linux-libc-dev_6.12.90-2_all.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/l/linux/linux-libc-dev_6.12.86-1_all.deb"
 			],
-			"version": "6.12.90-2"
+			"version": "6.12.86-1"
 		},
 		{
 			"arch": "amd64",
@@ -2794,6 +2794,38 @@
 				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/t/tar/tar_1.35+dfsg-3.1_amd64.deb"
 			],
 			"version": "1.35+dfsg-3.1"
+		},
+		{
+			"arch": "amd64",
+			"dependencies": [
+				{
+					"key": "liblzma5_5.8.1-1_amd64",
+					"name": "liblzma5",
+					"version": "5.8.1-1"
+				},
+				{
+					"key": "libc6_2.41-12-p-deb13u3_amd64",
+					"name": "libc6",
+					"version": "2.41-12+deb13u3"
+				},
+				{
+					"key": "libgcc-s1_14.2.0-19_amd64",
+					"name": "libgcc-s1",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "gcc-14-base_14.2.0-19_amd64",
+					"name": "gcc-14-base",
+					"version": "14.2.0-19"
+				}
+			],
+			"key": "xz-utils_5.8.1-1_amd64",
+			"name": "xz-utils",
+			"sha256": "f34f575405b8c7bbe8d0dd91c97c65bca449cd541fcaab368155da94d51d5243",
+			"urls": [
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/x/xz-utils/xz-utils_5.8.1-1_amd64.deb"
+			],
+			"version": "5.8.1-1"
 		},
 		{
 			"arch": "amd64",
@@ -3330,7 +3362,7 @@
 			"name": "containerd",
 			"sha256": "ed708deb96fe476a3bce4efa5c0538dfbcf717ab9a7c7944ba7260342c25899c",
 			"urls": [
-				"https://snapshot.debian.org/archive/debian-security/20260601T000000Z/pool/updates/main/c/containerd/containerd_1.7.24~ds1-6+deb13u1_amd64.deb"
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/c/containerd/containerd_1.7.24~ds1-6+deb13u1_amd64.deb"
 			],
 			"version": "1.7.24~ds1-6+deb13u1"
 		},
