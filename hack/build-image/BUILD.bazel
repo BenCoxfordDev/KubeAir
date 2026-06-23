@@ -1,4 +1,4 @@
-load("@rules_img//img:image.bzl", "image_index", "image_manifest")
+load("@rules_img//img:image.bzl", "image_manifest")
 load("@rules_img//img:layer.bzl", "image_layer", "layer_from_tar")
 load("@rules_img//img:push.bzl", "image_push")
 
@@ -54,17 +54,6 @@ image_manifest(
     ],
 )
 
-# ── Multi-arch index ─────────────────────────────────────────────────────────
-
-image_index(
-    name = "build_image",
-    manifests = [
-        ":build_image_amd64",
-        ":build_image_arm64",
-    ],
-    visibility = ["//visibility:public"],
-)
-
 # ── Push targets ─────────────────────────────────────────────────────────────
 # Tag pattern: ghcr.io/bencoxforddev/kubeair/build:<k8s-major>.<k8s-minor>
 # The matrix job pushes arch-specific tags; push-index pushes the combined tag.
@@ -83,14 +72,6 @@ image_push(
     registry = "ghcr.io",
     repository = "bencoxforddev/kubeair/build",
     tag = "1.33-arm64",
-)
-
-image_push(
-    name = "push",
-    image = ":build_image",
-    registry = "ghcr.io",
-    repository = "bencoxforddev/kubeair/build",
-    tag = "1.33",
 )
 
 # Convenience aliases consumed by just lock-build-image
