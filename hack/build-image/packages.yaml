@@ -22,8 +22,10 @@ packages:
 
   # Build essentials
   - curl
+  - gcc
   - git
   - jq
+  - libc6-dev
   - tar
 
   # Kubernetes node dependencies (needed by kubeadm / kubelet e2e setup)
