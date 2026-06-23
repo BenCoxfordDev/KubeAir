@@ -24,8 +24,8 @@ build:macos --sandbox_add_mount_pair=/var/tmp
 build:macos --jobs=8
 build:macos --local_ram_resources=HOST_RAM*0.6
 
-# Inside the e2e podman container the VM typically has ~2GB RAM.
-# Cap parallelism to avoid the Bazel JVM server being OOM-killed (exit 37).
-build:container --jobs=4
-build:container --local_resources=ram=1536
-build:container --local_resources=cpu=4
+# Inside the e2e podman container. Size to the VM's available RAM —
+# currently 8GB, so allow 6GB to Bazel and run 6 parallel jobs.
+build:container --jobs=6
+build:container --local_resources=ram=6144
+build:container --local_resources=cpu=6

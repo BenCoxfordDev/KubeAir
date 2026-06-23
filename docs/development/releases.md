@@ -55,7 +55,7 @@ When a new Kubernetes minor is released:
 1. **Update `k8s-openapi`** in `Cargo.toml` to the new version feature flag (e.g., `features = ["v1_34"]`).
 2. **Update `kube`** to the latest release compatible with the new API version.
 3. **Re-pin dependencies** by running `just generate-lockfile` to pull latest patch versions of all dependencies.
-4. **Re-run the full test suite** (`just test`) and the live cluster e2e suite (`bash hack/e2e/colima-run.sh`) against a cluster running the new Kubernetes version. All conformance and e2e tests must pass before a release is tagged.
+4. **Re-run the full test suite** (`just test`) and the live cluster e2e suite (`just e2e`) against a cluster running the new Kubernetes version. All conformance and e2e tests must pass before a release is tagged.
 5. **Update the compatibility table** in this file.
 6. **Update `[workspace.package] version`** in `Cargo.toml` to the new `major.minor.0`.
 7. **Tag and push** (see release steps below).
@@ -158,7 +158,7 @@ Use this when `main` is already at `1.34.x` (or later) but `1.33.x` still needs 
 
 - [ ] `just verify` passes with zero warnings and no policy violations
 - [ ] `just test` passes (all unit, integration, and conformance suites)
-- [ ] E2E suite passes: 0 failures (`bash hack/e2e/colima-run.sh`)
+- [ ] E2E suite passes: 0 failures (`just e2e`)
 - [ ] Dependencies audited: `cargo audit` reports no high/critical advisories
 - [ ] `[workspace.package] version` in `Cargo.toml` is updated
 - [ ] Compatibility table in this file is updated

@@ -42,6 +42,7 @@ image_layer(
     name = "tools_layer_amd64",
     srcs = {
         "/usr/local/bin/bazelisk": "@bazelisk_linux_amd64//file",
+        "/usr/local/bin/cargo-deny": "@cargo_deny_linux_amd64//:cargo-deny",
         "/usr/local/bin/crictl": "@crictl_linux_amd64//:crictl",
         "/usr/local/bin/just": "@just_linux_amd64//:just",
         "/usr/local/bin/k3s": "@k3s_linux_amd64//file",
@@ -89,6 +90,7 @@ image_layer(
     name = "tools_layer_arm64",
     srcs = {
         "/usr/local/bin/bazelisk": "@bazelisk_linux_arm64//file",
+        "/usr/local/bin/cargo-deny": "@cargo_deny_linux_arm64//:cargo-deny",
         "/usr/local/bin/crictl": "@crictl_linux_arm64//:crictl",
         "/usr/local/bin/just": "@just_linux_arm64//:just",
         "/usr/local/bin/k3s": "@k3s_linux_arm64//file",

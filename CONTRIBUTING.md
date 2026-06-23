@@ -55,7 +55,7 @@ KubeAir has four test layers:
 | Unit tests        | `#[test]` inside each crate's `src/` | Always, for domain logic                                         |
 | Integration tests | `tests/integration/`                   | Cross-crate behaviour, lifecycle flows                           |
 | Conformance tests | `tests/conformance/`                   | Kubernetes spec compliance                                       |
-| E2E tests         | `tests/e2e/` + `hack/e2e/`           | Full cluster behaviour (run via `bash hack/e2e/colima-run.sh`) |
+| E2E tests         | `tests/e2e/` + `hack/e2e/`           | Full cluster behaviour (run via `just e2e`) |
 
 Run the conformance/smoke suite before submitting any change that touches pod lifecycle, container state, or the kubelet API:
 

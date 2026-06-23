@@ -9,7 +9,7 @@ name: K8s Rust E2E
 #   kube-air kubelet             (node agent, connects to k3s API server)
 #   bridge CNI                   (pod networking)
 #
-# Mirrors hack/e2e/colima-run.sh for local macOS development.
+# Mirrors hack/e2e/run-e2e.sh for local macOS development.
 #
 # Triggers:
 #   workflow_dispatch  — manual run with tunable parameters

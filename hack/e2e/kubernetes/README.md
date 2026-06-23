@@ -5,10 +5,10 @@ against an already-provisioned cluster.
 
 ## Local usage
 
-SSH to local Colima VM:
+SSH to the container running the cluster (while `just e2e` is active):
 
 ```bash
-colima ssh --profile kubeair-e2e
+podman exec -it $(podman ps -q) bash
 ```
 
 Run conformance only:

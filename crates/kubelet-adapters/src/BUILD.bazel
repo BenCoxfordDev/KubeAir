@@ -128,6 +128,10 @@ rust_test(
     name = "adapters_test",
     crate = ":lib",
     edition = "2024",
+    # Some tests (e.g. volume_fsgroup) call chown/chmod and require root.
+    # Running unsandboxed inside the privileged e2e container gives them the
+    # real root identity; the linux-sandbox would drop it.
+    tags = ["no-sandbox"],
     deps = [
         "@crates//:mockall",
         "@crates//:rstest",

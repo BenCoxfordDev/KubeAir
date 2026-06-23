@@ -17,8 +17,7 @@
 # run-e2e.sh — Run the kube-air e2e suite in a privileged container.
 #
 # Uses the same CI build image as GitHub Actions (ghcr.io/bencoxforddev/kubeair/build)
-# via podman (or docker). Replaces the previous Colima VM approach for faster
-# local iteration on macOS.
+# via podman (or docker).
 #
 # Requirements: podman (preferred) or docker.
 #
@@ -48,9 +47,9 @@ SKIP_BUILD="${SKIP_BUILD:-0}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 
-log()  { printf '[colima-run] %s\n' "$*"; }
-die()  { printf '[colima-run] ERROR: %s\n' "$*" >&2; exit 1; }
-step() { printf '\n[colima-run] ══ %s ══\n' "$*"; }
+log()  { printf '[e2e-run] %s\n' "$*"; }
+die()  { printf '[e2e-run] ERROR: %s\n' "$*" >&2; exit 1; }
+step() { printf '\n[e2e-run] ══ %s ══\n' "$*"; }
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1 — install $2"
@@ -78,6 +77,17 @@ fi
 ARTIFACT_DIR="${HOME}/.kubeair/e2e-artifacts/$(date +%Y%m%dT%H%M%S)"
 mkdir -p "$ARTIFACT_DIR"
 
+# ── Always copy results to tests/results/ on exit ─────────────────────────────
+# tests/results/ is gitignored — runs even when the container exits non-zero.
+RESULTS_DIR="$REPO_ROOT/tests/results"
+copy_results() {
+  mkdir -p "$RESULTS_DIR"
+  cp -r "$ARTIFACT_DIR/." "$RESULTS_DIR/" 2>/dev/null || true
+  log "Results copied to: $RESULTS_DIR"
+  ls -lh "$RESULTS_DIR" || true
+}
+trap copy_results EXIT
+
 step "Launching container (--privileged)"
 
 mkdir -p "${HOME}/.cache/bazel"
@@ -86,6 +96,7 @@ mkdir -p "${HOME}/.cache/bazel"
   --rm \
   --privileged \
   --network=host \
+  --ulimit nofile=65536:65536 \
   -v "$REPO_ROOT:/workspace:z" \
   -v "$ARTIFACT_DIR:/artifacts:z" \
   -v "${HOME}/.cache/bazel:/root/.cache/bazel:z" \
@@ -101,4 +112,4 @@ mkdir -p "${HOME}/.cache/bazel"
 log "Artifacts saved to: $ARTIFACT_DIR"
 ls -lh "$ARTIFACT_DIR" || true
 
-log "colima-run.sh complete"
+log "e2e-run.sh complete"

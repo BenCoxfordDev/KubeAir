@@ -180,6 +180,22 @@ http_file(
     urls = ["https://github.com/k3s-io/k3s/releases/download/v1.33.0%2Bk3s1/k3s-arm64"],
 )
 
+http_archive(
+    name = "cargo_deny_linux_amd64",
+    build_file_content = 'exports_files(["cargo-deny"])',
+    sha256 = "f1f8eedc2a3ac297c540873f93785d4104b102c0079506b2a6b3221b7ec956af",
+    strip_prefix = "cargo-deny-0.19.9-x86_64-unknown-linux-musl",
+    urls = ["https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-x86_64-unknown-linux-musl.tar.gz"],
+)
+
+http_archive(
+    name = "cargo_deny_linux_arm64",
+    build_file_content = 'exports_files(["cargo-deny"])',
+    sha256 = "32580dcc2bc13fbeeb7c50edc38ef99c3b9ce9569a1d07a96e11b3b941f3e72e",
+    strip_prefix = "cargo-deny-0.19.9-aarch64-unknown-linux-musl",
+    urls = ["https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-aarch64-unknown-linux-musl.tar.gz"],
+)
+
 # Debian Trixie packages installed into the build image via rules_distroless apt.
 # After changing packages yaml files, regenerate the locks: just lock-build-image
 apt = use_extension("@rules_distroless//apt:extensions.bzl", "apt")
