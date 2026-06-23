@@ -60,15 +60,18 @@ jobs:
           repository-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
+
       - name: Provision containerd and CNI
         shell: bash
         run: |
-          sudo mkdir -p /opt/cni /etc/cni/net.d
+          mkdir -p /opt/cni /etc/cni/net.d
           if [[ ! -e /opt/cni/bin ]]; then
-            sudo ln -s /usr/lib/cni /opt/cni/bin
+            ln -s /usr/lib/cni /opt/cni/bin
           fi
 
-          cat <<'EOF' | sudo tee /etc/cni/net.d/10-kubelet-rs-ci.conflist >/dev/null
+          cat <<'EOF' > /etc/cni/net.d/10-kubelet-rs-ci.conflist
           {
             "cniVersion": "1.0.0",
             "name": "kube-air-ci",
@@ -107,10 +110,10 @@ jobs:
 
           # Ensure containerd service is started
           echo "Starting containerd service..."
-          sudo systemctl start containerd 2>&1 || {
+          systemctl start containerd 2>&1 || {
             echo "systemctl start failed, starting manually..."
-            sudo mkdir -p /run/containerd
-            sudo nohup containerd >/tmp/containerd.log 2>&1 &
+            mkdir -p /run/containerd
+            nohup containerd >/tmp/containerd.log 2>&1 &
           }
           
           # Wait for containerd socket file to exist
@@ -121,7 +124,7 @@ jobs:
             if [[ $attempt -ge $max_attempts ]]; then
               echo "ERROR: Containerd socket failed to appear after $max_attempts attempts"
               echo "Systemd status:"
-              sudo systemctl status containerd 2>&1 || true
+              systemctl status containerd 2>&1 || true
               echo "Containerd logs (last 100 lines):"
               tail -100 /tmp/containerd.log 2>&1 || true
               ls -la /run/containerd/ 2>&1 || true
@@ -135,7 +138,7 @@ jobs:
           # Verify ctr can connect to the socket
           echo "Socket ready. Verifying ctr connectivity..."
           for i in {1..10}; do
-            if sudo timeout 2 ctr version >/dev/null 2>&1; then
+            if timeout 2 ctr version >/dev/null 2>&1; then
               echo "✓ Containerd is ready"
               break
             fi
@@ -144,7 +147,7 @@ jobs:
               echo "Socket file status:"
               ls -la /run/containerd/containerd.sock
               echo "Systemd status:"
-              sudo systemctl status containerd 2>&1 || true
+              systemctl status containerd 2>&1 || true
               echo "Containerd logs (last 100 lines):"
               tail -100 /tmp/containerd.log 2>&1 || true
               exit 1
@@ -153,7 +156,7 @@ jobs:
             sleep 1
           done
           
-          sudo ctr version
+          ctr version
           
           # Verify CNI plugins
           echo "✓ CNI plugins available:"

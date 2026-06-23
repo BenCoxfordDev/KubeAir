@@ -59,8 +59,8 @@ jobs:
           repository-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Install cargo-deny
-        run: cargo install cargo-deny
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
 
       - name: Check formatting, lint, and cargo deny
         run: just verify

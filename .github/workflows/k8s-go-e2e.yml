@@ -84,6 +84,9 @@ jobs:
           repository-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
+
       # ── Build kube-air kubelet ─────────────────────────────────────────────────
 
       - name: Build kube-air kubelet

@@ -59,6 +59,9 @@ jobs:
           repository-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
+
       - name: Run all test suites
         run: just test
 
@@ -78,6 +81,9 @@ jobs:
           disk-cache: kubeair
           repository-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
 
       - name: Generate coverage report
         shell: bash

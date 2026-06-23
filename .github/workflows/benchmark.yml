@@ -49,6 +49,9 @@ jobs:
           repository-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
+
       - name: Benchmark
         run: just bench 2>&1 | tee benchmark.log
 
