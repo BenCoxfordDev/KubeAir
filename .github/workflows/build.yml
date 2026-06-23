@@ -15,11 +15,14 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   build:
     name: Build ${{ matrix.artifact_arch }}
     runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/bencoxforddev/kubeair/build:1.33
     strategy:
       fail-fast: false
       matrix:
@@ -41,8 +44,8 @@ jobs:
           repository-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Set up just
-        uses: extractions/setup-just@v2
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
 
       - name: Build kubelet
         run: just build ${{ matrix.artifact_arch }}

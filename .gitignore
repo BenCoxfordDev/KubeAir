@@ -4,3 +4,4 @@
 .github/agents/*
 .github/prompts/*
 bazel-*
+tests/results

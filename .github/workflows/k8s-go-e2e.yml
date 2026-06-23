@@ -1,21 +1,13 @@
 name: K8s Upstream Go E2E
 
-# Dispatch-only workflow that runs upstream Kubernetes Go conformance/e2e
-# against an already-provisioned cluster. This workflow intentionally does
-# not build or run kube-air Rust tests.
+# Runs upstream Kubernetes Go conformance/e2e tests against a k3s cluster
+# provisioned with the kube-air kubelet inside the CI build container.
+#
+# All execution happens inside a privileged build container — no systemd needed.
 
 on:
   workflow_dispatch:
     inputs:
-      kubeconfig_base64:
-        description: "Optional base64 kubeconfig content. If empty, use /etc/kubernetes/admin.conf on runner"
-        required: false
-        type: string
-      upstream_k8s_version:
-        description: "Upstream Kubernetes release for test binaries (v1.33.0, 1.33.0, stable, stable-1.33)"
-        required: false
-        default: ""
-        type: string
       run_conformance:
         description: "Run upstream conformance suite"
         required: false
@@ -54,6 +46,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -65,43 +58,50 @@ env:
 jobs:
   kubernetes-go-e2e:
     runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/bencoxforddev/kubeair/build:1.33
+      options: --privileged
     timeout-minutes: 180
 
     steps:
+      # ── Checkout ──────────────────────────────────────────────────────────────
+
       - name: Checkout kube-air
         uses: actions/checkout@v4
 
-      - name: Resolve kubeconfig
-        id: kubeconfig
+      # ── Bazel ─────────────────────────────────────────────────────────────────
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.9.1
+        with:
+          bazelisk-cache: true
+          disk-cache: kubeair
+          repository-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
+
+      # ── Build kube-air kubelet ─────────────────────────────────────────────────
+
+      - name: Build kube-air kubelet
         shell: bash
         run: |
-          mkdir -p /tmp
-          if [[ -n "${{ inputs.kubeconfig_base64 }}" ]]; then
-            echo "${{ inputs.kubeconfig_base64 }}" | base64 -d > /tmp/upstream-kubeconfig
-            echo "kubeconfig=/tmp/upstream-kubeconfig" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          just build
+          echo "Built: bazel-bin/src/main ($(du -sh bazel-bin/src/main | cut -f1))"
 
-          if [[ -f /etc/kubernetes/admin.conf ]]; then
-            sudo cp /etc/kubernetes/admin.conf /tmp/upstream-kubeconfig
-            sudo chown "$(id -u):$(id -g)" /tmp/upstream-kubeconfig
-            echo "kubeconfig=/tmp/upstream-kubeconfig" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+      # ── Provision cluster + run tests ─────────────────────────────────────────
+      # Delegates to run-go-e2e-in-container.sh — the same script used by
+      # `just go-e2e` locally. SKIP_BUILD=1 since we already built above.
+      # Test binary version is auto-detected from the cluster server version.
 
-          echo "No kubeconfig provided and /etc/kubernetes/admin.conf not found"
-          exit 1
-
-      - name: Make upstream runner executable
-        shell: bash
-        run: chmod +x hack/e2e/kubernetes/run-upstream-go-e2e.sh
-
-      - name: Run upstream Kubernetes Go e2e/conformance
+      - name: Provision cluster and run upstream Go e2e/conformance
         shell: bash
         env:
-          KUBECONFIG: ${{ steps.kubeconfig.outputs.kubeconfig }}
+          SKIP_BUILD: "1"
+          RESET_EXISTING: "0"
+          KUBEAIR_REPO_PATH: ${{ github.workspace }}
           ARTIFACT_DIR: ${{ env.ARTIFACT_DIR }}
-          UPSTREAM_K8S_VERSION: ${{ inputs.upstream_k8s_version }}
           RUN_CONFORMANCE: ${{ inputs.run_conformance && '1' || '0' }}
           RUN_E2E: ${{ inputs.run_e2e && '1' || '0' }}
           CONFORMANCE_FOCUS: ${{ inputs.conformance_focus }}
@@ -109,19 +109,22 @@ jobs:
           E2E_FOCUS: ${{ inputs.e2e_focus }}
           E2E_SKIP: ${{ inputs.e2e_skip }}
           GINKGO_NODES: ${{ inputs.ginkgo_nodes }}
-        run: |
-          bash hack/e2e/kubernetes/run-upstream-go-e2e.sh 2>&1 | tee /tmp/upstream-go-e2e.log
+        run: bash hack/e2e/run-go-e2e-in-container.sh 2>&1 | tee /tmp/go-e2e-in-container.log
+
+      # ── Artifacts ─────────────────────────────────────────────────────────────
 
       - name: Collect cluster diagnostics on failure
         if: failure()
         shell: bash
         env:
-          KUBECONFIG: ${{ steps.kubeconfig.outputs.kubeconfig }}
+          KUBECONFIG: /etc/rancher/k3s/k3s.yaml
         run: |
           mkdir -p "$ARTIFACT_DIR/cluster-state"
-          kubectl get nodes -o wide > "$ARTIFACT_DIR/cluster-state/nodes.txt" 2>&1 || true
-          kubectl get pods --all-namespaces -o wide > "$ARTIFACT_DIR/cluster-state/pods.txt" 2>&1 || true
-          kubectl get events --all-namespaces --sort-by=.lastTimestamp > "$ARTIFACT_DIR/cluster-state/events.txt" 2>&1 || true
+          k3s kubectl get nodes -o wide > "$ARTIFACT_DIR/cluster-state/nodes.txt" 2>&1 || true
+          k3s kubectl get pods --all-namespaces -o wide > "$ARTIFACT_DIR/cluster-state/pods.txt" 2>&1 || true
+          k3s kubectl get events --all-namespaces --sort-by=.lastTimestamp > "$ARTIFACT_DIR/cluster-state/events.txt" 2>&1 || true
+          tail -200 /tmp/kubelet.log > "$ARTIFACT_DIR/cluster-state/kubelet.log" 2>&1 || true
+          tail -100 /tmp/k3s-server.log > "$ARTIFACT_DIR/cluster-state/k3s-server.log" 2>&1 || true
 
       - name: Upload upstream Go e2e artifacts
         if: always()
@@ -130,5 +133,8 @@ jobs:
           name: k8s-upstream-go-e2e-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.ARTIFACT_DIR }}/
-            /tmp/upstream-go-e2e.log
+            /tmp/go-e2e-in-container.log
+            /tmp/k3s-server.log
+            /tmp/kubelet.log
+            /tmp/kubelet-memory.csv
           if-no-files-found: ignore

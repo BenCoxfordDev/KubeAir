@@ -1,12 +1,6 @@
 name: Benchmark
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-    paths:
-      - '**/*.rs'
-      - '**/Cargo.lock'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,6 +8,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   check-changes:
@@ -40,6 +35,8 @@ jobs:
     needs: [check-changes]
     if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/bencoxforddev/kubeair/build:1.33
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,8 +49,8 @@ jobs:
           repository-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Set up just
-        uses: extractions/setup-just@v2
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
 
       - name: Benchmark
         run: just bench 2>&1 | tee benchmark.log

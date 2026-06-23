@@ -106,16 +106,12 @@ fn chown_gid(path: &Path, gid: u32) -> Result<()> {
     let ret = unsafe { libc::lchown(c_path.as_ptr(), u32::MAX, gid) }; // -1 = don't change uid
     if ret != 0 {
         let err = std::io::Error::last_os_error();
-        // EPERM is expected if we're not root; warn but don't fail.
-        if err.raw_os_error() != Some(libc::EPERM) {
-            return Err(KubeletError::Storage(format!(
-                "lchown {} to gid {}: {}",
-                path.display(),
-                gid,
-                err
-            )));
-        }
-        debug!(path = %path.display(), gid, "lchown EPERM (not root; skipping)");
+        return Err(KubeletError::Storage(format!(
+            "lchown {} to gid {}: {}",
+            path.display(),
+            gid,
+            err
+        )));
     }
     Ok(())
 }
@@ -176,7 +172,6 @@ mod tests {
         let dir = TempDir::new().unwrap();
         // Write a file to the dir.
         std::fs::write(dir.path().join("file.txt"), b"hello").unwrap();
-        // Apply fsGroup (may fail silently if not root -- that's OK).
         let result = apply_fs_group(dir.path(), 2000, &FsGroupPolicy::File);
         assert!(result.is_ok());
     }

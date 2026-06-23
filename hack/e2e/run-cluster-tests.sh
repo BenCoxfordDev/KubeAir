@@ -17,7 +17,7 @@
 # run-cluster-tests.sh — Run kube-air Rust conformance, smoke, and live e2e
 #                         tests against an already-provisioned cluster.
 #
-# Runs ON the Linux node (Colima VM or GitHub runner) after setup-node.sh.
+# Runs ON the Linux node (CI container or GitHub runner) after setup-node.sh.
 #
 # Environment variables:
 #   KUBEAIR_REPO_PATH   Path to the kube-air source tree. Default /opt/kubeair.
@@ -34,8 +34,9 @@ set -euo pipefail
 [[ -f "${HOME}/.cargo/env" ]] && source "${HOME}/.cargo/env"
 
 KUBEAIR_REPO_PATH="${KUBEAIR_REPO_PATH:-/opt/kubeair}"
-# Prefer the user-readable kubeconfig; fall back to admin.conf for root.
+# Prefer the user-readable kubeconfig; fall back to k3s then kubeadm paths.
 KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
+[[ -f "$KUBECONFIG" ]] || KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
 [[ -f "$KUBECONFIG" ]] || KUBECONFIG="/etc/kubernetes/admin.conf"
 CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
 RUN_UNIT_TESTS="${RUN_UNIT_TESTS:-1}"
@@ -56,6 +57,7 @@ cd "$KUBEAIR_REPO_PATH"
 export KUBECONFIG
 
 OVERALL_PASS=0  # 0 = pass, non-zero = fail
+FAILED_SUITES=()  # names of suites that failed
 
 run_suite() {
   local label=$1; shift
@@ -66,6 +68,7 @@ run_suite() {
   else
     log "FAIL: $label (see $log_file)"
     OVERALL_PASS=1
+    FAILED_SUITES+=("$label")
   fi
 }
 
@@ -128,7 +131,14 @@ log "Artifacts written to: $ARTIFACT_DIR"
 ls -lh "$ARTIFACT_DIR" || true
 
 if [[ "$OVERALL_PASS" -ne 0 ]]; then
-  die "One or more test suites FAILED. Review logs in $ARTIFACT_DIR"
+  log "Failed suites (${#FAILED_SUITES[@]}):"
+  for suite in "${FAILED_SUITES[@]}"; do
+    log "  FAIL  $suite"
+    # Print the last 20 lines of the log for quick triage
+    log "  --- last 20 lines of ${suite}.log ---"
+    tail -20 "$ARTIFACT_DIR/${suite}.log" | sed 's/^/    /' >&2
+  done
+  die "${#FAILED_SUITES[@]} suite(s) FAILED: ${FAILED_SUITES[*]}"
 fi
 
 log "All test suites PASSED"

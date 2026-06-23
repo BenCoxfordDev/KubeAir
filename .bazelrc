@@ -23,3 +23,9 @@ build:macos --sandbox_add_mount_pair=/var/tmp
 # killer when too many Bazel sandbox processes run concurrently.
 build:macos --jobs=8
 build:macos --local_ram_resources=HOST_RAM*0.6
+
+# Inside the e2e podman container. Size to the VM's available RAM —
+# currently 8GB, so allow 6GB to Bazel and run 6 parallel jobs.
+build:container --jobs=6
+build:container --local_resources=ram=6144
+build:container --local_resources=cpu=6

@@ -38,16 +38,16 @@ just fmt
 just bench
 ```
 
-## Local Colima E2E
+## Local E2E
 
-Use [hack/e2e/colima-run.sh](hack/e2e/colima-run.sh) to provision a single-node Kubernetes cluster in a Colima VM (containerd + kubeadm + Calico) and run the full test suite.
+Use [hack/e2e/run-e2e.sh](hack/e2e/run-e2e.sh) to provision a single-node k3s cluster in a privileged container (podman or docker) and run the full test suite. Requires podman (preferred) or docker.
 
 ```bash
-bash hack/e2e/colima-run.sh
+just e2e
 ```
 
-Skip the binary rebuild and repo sync if you've already built:
+Skip the binary rebuild if you've already built:
 
 ```bash
-SKIP_BUILD_BINARY=1 bash hack/e2e/colima-run.sh
+SKIP_BUILD=1 bash hack/e2e/run-e2e.sh
 ```

@@ -25,6 +25,7 @@ concurrency:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   prepare:
@@ -92,10 +93,6 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           REBUILD_ASSETS="${{ github.event.inputs.rebuild_assets || 'false' }}"
-          # If triggered by a push (Cargo.toml change), treat it as a rebuild request
-          if [[ "${{ github.event_name }}" == 'push' ]]; then
-            REBUILD_ASSETS='true'
-          fi
 
           if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" > /dev/null 2>&1; then
             if [[ "$REBUILD_ASSETS" == 'true' ]]; then
@@ -166,6 +163,8 @@ jobs:
           - artifact_arch: arm64
             runs_on: ubuntu-24.04 # to change to arm64 runners once available
     runs-on: ${{ matrix.runs_on }}
+    container:
+      image: ghcr.io/bencoxforddev/kubeair/build:1.33
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -180,12 +179,12 @@ jobs:
           repository-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && 'false' || 'true' }}
           save-cache: ${{ needs.prepare.outputs.rebuild_assets == 'false' }}
 
+      - name: Ensure bazel symlink
+        run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
+
       - name: Clean Bazel state before rebuild
         shell: bash
         run: bazel clean --expunge
-
-      - name: Set up just
-        uses: extractions/setup-just@v2
 
       - name: Build release binary
         run: just build ${{ matrix.artifact_arch }}

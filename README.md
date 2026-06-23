@@ -42,7 +42,7 @@ KubeAir has ~888 automated tests across four layers:
 | Conformance | 119   | Kubernetes spec compliance (in-process)        |
 | E2E         | 38    | Live cluster tests against a real kubeadm node |
 
-E2E tests run against a real kubeadm cluster (Calico CNI, containerd) provisioned inside a Colima VM. They cover cluster health, workload lifecycle, kubectl operations, and containerd API status.
+E2E tests run against a real kubeadm cluster (Calico CNI, containerd) provisioned inside a privileged container via podman. They cover cluster health, workload lifecycle, kubectl operations, and containerd API status.
 
 ## Kubernetes Compatibility
 
@@ -107,8 +107,8 @@ just conformance
 # Smoke test suite only
 just smoke
 
-# Full end-to-end conformance (requires Colima)
-bash hack/e2e/colima-run.sh
+# Full end-to-end conformance (requires podman)
+just e2e
 ```
 
 ## Contributing
