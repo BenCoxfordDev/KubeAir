@@ -161,6 +161,8 @@ jobs:
           - artifact_arch: arm64
             runs_on: ubuntu-24.04 # to change to arm64 runners once available
     runs-on: ${{ matrix.runs_on }}
+    container:
+      image: ghcr.io/bencoxforddev/kubeair/build:1.33
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -178,9 +180,6 @@ jobs:
       - name: Clean Bazel state before rebuild
         shell: bash
         run: bazel clean --expunge
-
-      - name: Set up just
-        uses: extractions/setup-just@v2
 
       - name: Build release binary
         run: just build ${{ matrix.artifact_arch }}

@@ -62,8 +62,8 @@ just smoke
 Full cluster tests in `tests/e2e/`. They are `#[ignore]` and require a running Kubernetes cluster (KUBECONFIG set or `/etc/kubernetes/admin.conf` present) and `kubectl` on PATH.
 
 ```bash
-# Provision a local Colima cluster and run everything
-bash hack/e2e/colima-run.sh
+# Provision a local cluster (privileged container via podman/docker) and run everything
+just e2e
 
 # Run a specific e2e test against an existing cluster
 cargo test --test workload_features_test -- --ignored e2e_configmap_env_injection --nocapture

@@ -56,3 +56,6 @@ generate-lockfile:
 lock-build-image:
   bazel run //hack/build-image:lock_amd64 -- --autofix || true
   bazel run //hack/build-image:lock_arm64 -- --autofix || true
+
+e2e:
+  bash hack/e2e/run-e2e.sh

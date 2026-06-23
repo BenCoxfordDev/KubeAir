@@ -36,6 +36,7 @@ packages:
 
   # Container runtime
   - containerd
+  - containernetworking-plugins
 
   # Coverage
   - lcov

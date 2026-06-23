@@ -44,6 +44,9 @@ jobs:
     needs: [check-changes]
     if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/bencoxforddev/kubeair/build:1.33
+      options: --privileged
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,16 +58,6 @@ jobs:
           disk-cache: kubeair
           repository-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Set up just
-        uses: extractions/setup-just@v2
-
-      - name: Install runtime dependencies
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y containerd containernetworking-plugins iproute2 iptables
-          containerd --version
 
       - name: Provision containerd and CNI
         shell: bash

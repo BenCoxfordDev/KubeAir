@@ -2726,6 +2726,78 @@
 			"arch": "arm64",
 			"dependencies": [
 				{
+					"key": "libc6_2.41-12-p-deb13u3_arm64",
+					"name": "libc6",
+					"version": "2.41-12+deb13u3"
+				},
+				{
+					"key": "libgcc-s1_14.2.0-19_arm64",
+					"name": "libgcc-s1",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "gcc-14-base_14.2.0-19_arm64",
+					"name": "gcc-14-base",
+					"version": "14.2.0-19"
+				},
+				{
+					"key": "iptables_1.8.11-2_arm64",
+					"name": "iptables",
+					"version": "1.8.11-2"
+				},
+				{
+					"key": "libnftnl11_1.2.9-1_arm64",
+					"name": "libnftnl11",
+					"version": "1.2.9-1"
+				},
+				{
+					"key": "libmnl0_1.0.5-3_arm64",
+					"name": "libmnl0",
+					"version": "1.0.5-3"
+				},
+				{
+					"key": "libnfnetlink0_1.0.2-3_arm64",
+					"name": "libnfnetlink0",
+					"version": "1.0.2-3"
+				},
+				{
+					"key": "libnetfilter-conntrack3_1.1.0-1_arm64",
+					"name": "libnetfilter-conntrack3",
+					"version": "1.1.0-1"
+				},
+				{
+					"key": "netbase_6.5_arm64",
+					"name": "netbase",
+					"version": "6.5"
+				},
+				{
+					"key": "libxtables12_1.8.11-2_arm64",
+					"name": "libxtables12",
+					"version": "1.8.11-2"
+				},
+				{
+					"key": "libip6tc2_1.8.11-2_arm64",
+					"name": "libip6tc2",
+					"version": "1.8.11-2"
+				},
+				{
+					"key": "libip4tc2_1.8.11-2_arm64",
+					"name": "libip4tc2",
+					"version": "1.8.11-2"
+				}
+			],
+			"key": "containernetworking-plugins_1.1.1-p-ds1-3-p-b17_arm64",
+			"name": "containernetworking-plugins",
+			"sha256": "b8600dbeac613b9cacd2bfffb5590f2a4ba427765c6b7cae86d7535db2c3d3a9",
+			"urls": [
+				"https://snapshot.debian.org/archive/debian/20260601T000000Z/pool/main/g/golang-github-containernetworking-plugins/containernetworking-plugins_1.1.1+ds1-3+b17_arm64.deb"
+			],
+			"version": "1.1.1+ds1-3+b17"
+		},
+		{
+			"arch": "arm64",
+			"dependencies": [
+				{
 					"key": "libperlio-gzip-perl_0.20-1-p-b4_arm64",
 					"name": "libperlio-gzip-perl",
 					"version": "0.20-1+b4"
