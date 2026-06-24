@@ -11,6 +11,11 @@ name: Build Image
 # Bump .version (and the corresponding pins in MODULE.bazel) when upgrading Kubernetes.
 
 on:
+  pull_request:
+    paths:
+      - 'hack/build-image/**'
+      - 'MODULE.bazel'
+      - '.version'
   push:
     branches:
       - main
