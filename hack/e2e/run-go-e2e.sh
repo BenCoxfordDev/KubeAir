@@ -31,7 +31,7 @@
 # Environment overrides:
 #   CONTAINER_RUNTIME      podman or docker. Default: podman
 #   BUILD_IMAGE            Build image to use.
-#                          Default: ghcr.io/bencoxforddev/kubeair/build:1.33
+#                          Default: ghcr.io/bencoxforddev/kubeair/build:<tag from .version>
 #   RUN_CONFORMANCE        "1" to run conformance suite. Default: 1
 #   RUN_E2E                "1" to run non-conformance e2e suite. Default: 0
 #   CONFORMANCE_FOCUS      Focus regex. Default: \[Conformance\]
@@ -43,8 +43,15 @@
 #   SKIP_BUILD             "1" to reuse an existing binary (skip bazel build). Default: 0
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
+
+# Default image tag is derived from the Kubernetes version in .version.
+_k8s_ver="$(tr -d '[:space:]' < "$REPO_ROOT/.version")"
+_k8s_tag="$(echo "$_k8s_ver" | sed 's/^v//' | cut -d. -f1,2)"
+
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-podman}"
-BUILD_IMAGE="${BUILD_IMAGE:-ghcr.io/bencoxforddev/kubeair/build:1.33}"
+BUILD_IMAGE="${BUILD_IMAGE:-ghcr.io/bencoxforddev/kubeair/build:${_k8s_tag}}"
 RUN_CONFORMANCE="${RUN_CONFORMANCE:-1}"
 RUN_E2E="${RUN_E2E:-0}"
 CONFORMANCE_FOCUS="${CONFORMANCE_FOCUS:-\\[Conformance\\]}"
@@ -54,9 +61,6 @@ E2E_SKIP="${E2E_SKIP:-\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]}"
 GINKGO_NODES="${GINKGO_NODES:-4}"
 RESET_EXISTING="${RESET_EXISTING:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 
 log()  { printf '[go-e2e-run] %s\n' "$*"; }
 die()  { printf '[go-e2e-run] ERROR: %s\n' "$*" >&2; exit 1; }

@@ -10,16 +10,16 @@ KubeAir uses a **Kubernetes-aligned versioning scheme**:
 <k8s-major>.<k8s-minor>.<patch>
 ```
 
-- The `major.minor` component tracks the upstream Kubernetes release the kubelet is compatible with (e.g., `1.33.x` means "compatible with Kubernetes 1.33 clusters").
+- The `major.minor` component tracks the upstream Kubernetes release the kubelet is compatible with (e.g., `1.35.x` means "compatible with Kubernetes 1.35 clusters").
 - The `patch` component increments for bug fixes, security patches, and minor improvements within a Kubernetes minor cycle.
 
 **Examples:**
 
 | KubeAir Version | Meaning                                        |
 | --------------- | ---------------------------------------------- |
-| `1.33.0`      | First release targeting Kubernetes 1.33        |
-| `1.33.1`      | Patch release: bug fix, same K8s compatibility |
-| `1.34.0`      | First release targeting Kubernetes 1.34        |
+| `1.35.0`      | First release targeting Kubernetes 1.35        |
+| `1.35.1`      | Patch release: bug fix, same K8s compatibility |
+| `1.36.0`      | First release targeting Kubernetes 1.36        |
 
 ### Why not pure SemVer?
 
@@ -40,9 +40,9 @@ Kubernetes releases three minor versions per year, approximately every **4 month
 
 | Month    | Kubernetes Release |
 | -------- | ------------------ |
-| April    | 1.N (e.g., 1.33)   |
-| August   | 1.N+1 (e.g., 1.34) |
-| December | 1.N+2 (e.g., 1.35) |
+| April    | 1.N (e.g., 1.35)   |
+| August   | 1.N+1 (e.g., 1.36) |
+| December | 1.N+2 (e.g., 1.37) |
 
 KubeAir targets **one release per Kubernetes minor**, made within **4 weeks** of the upstream Kubernetes release. Patch releases are made as needed between Kubernetes minor cycles for fixes.
 
@@ -52,7 +52,7 @@ KubeAir tracks the **two most recent Kubernetes minor releases** as actively sup
 
 When a new Kubernetes minor is released:
 
-1. **Update `k8s-openapi`** in `Cargo.toml` to the new version feature flag (e.g., `features = ["v1_34"]`).
+1. **Update `k8s-openapi`** in `Cargo.toml` to the new version feature flag (e.g., `features = ["v1_35"]`).
 2. **Update `kube`** to the latest release compatible with the new API version.
 3. **Re-pin dependencies** by running `just generate-lockfile` to pull latest patch versions of all dependencies.
 4. **Re-run the full test suite** (`just test`) and the live cluster e2e suite (`just e2e`) against a cluster running the new Kubernetes version. All conformance and e2e tests must pass before a release is tagged.
@@ -110,7 +110,7 @@ If a release already exists and you need to rebuild the artifacts for the same v
 ### Cutting a release
 
 1. **Complete the pre-release checklist** (see below).
-2. **Bump `[workspace.package] version`** in `Cargo.toml` to the new version (e.g., `1.33.1`).
+2. **Bump `[workspace.package] version`** in `Cargo.toml` to the new version (e.g., `1.35.1`).
 3. **Merge to `main`** — the CI pipeline takes over: it tags, creates the GitHub Release, builds both architectures, and uploads the artifacts.
 
 No manual `git tag` or binary builds are required.
@@ -130,29 +130,29 @@ The pipeline checks out the existing tag, rebuilds both `amd64` and `arm64` arch
 
 **Scenario B — Code fix where `main` is still on the same minor**
 
-Use this when `main` is still at `1.33.x` (i.e. the fix and the next release share the same minor):
+Use this when `main` is still at `1.35.x` (i.e. the fix and the next release share the same minor):
 
-1. Create a branch from the existing tag: `git checkout -b fix/1.33.1 v1.33.0`
-2. Apply the fix and update `[workspace.package] version` in `Cargo.toml` to `1.33.1`.
-3. Open a PR against `main` and merge — CI cuts `v1.33.1` automatically via the normal pipeline.
+1. Create a branch from the existing tag: `git checkout -b fix/1.35.1 v1.35.0`
+2. Apply the fix and update `[workspace.package] version` in `Cargo.toml` to `1.35.1`.
+3. Open a PR against `main` and merge — CI cuts `v1.35.1` automatically via the normal pipeline.
 
 **Scenario C — Code fix where `main` has already moved to a newer minor**
 
-Use this when `main` is already at `1.34.x` (or later) but `1.33.x` still needs a patch (e.g. a security fix for a supported older minor):
+Use this when `main` is already at `1.36.x` (or later) but `1.35.x` still needs a patch (e.g. a security fix for a supported older minor):
 
 1. Create a long-lived maintenance branch from the last good tag if one does not already exist:
    ```bash
-   git checkout -b release/v1.33 v1.33.0
-   git push origin release/v1.33
+   git checkout -b release/v1.35 v1.35.0
+   git push origin release/v1.35
    ```
 2. Branch off that maintenance branch for the fix:
    ```bash
-   git checkout -b patch/v1.33.1 release/v1.33
+   git checkout -b patch/v1.35.1 release/v1.35
    ```
-3. Apply the fixes and bump `[workspace.package] version` in `Cargo.toml` to `1.33.1`.
-4. Open a PR **against `release/1.33`** (not `main`) and merge.
+3. Apply the fixes and bump `[workspace.package] version` in `Cargo.toml` to `1.35.1`.
+4. Open a PR **against `release/1.35`** (not `main`) and merge.
 5. If the fix also applies to `main`, open a separate cherry-pick PR against `main`.
-6. Merging into `release/1.33` triggers the CI release pipeline automatically (same as `main`) — it tags `v1.33.1` and publishes the release artifacts.
+6. Merging into `release/1.35` triggers the CI release pipeline automatically (same as `main`) — it tags `v1.35.1` and publishes the release artifacts.
 
 ### Pre-release checklist
 
@@ -215,7 +215,7 @@ The table below tracks which KubeAir release targets which Kubernetes cluster ve
 
 | KubeAir Version | Kubernetes Version | k8s-openapi feature | Rust Toolchain | Status |
 | --------------- | ------------------ | ------------------- | -------------- | ------ |
-| `1.33.x`      | 1.33               | `v1_30`           | 1.96.0         | Active |
+| `1.35.x`      | 1.35               | `v1_32`           | 1.96.0         | Active |
 
 > **Note:** `k8s-openapi` version lag is normal — the crate lags slightly behind Kubernetes releases. Use the highest available feature flag that is ≤ the target cluster version.
 

@@ -85,7 +85,7 @@ impl NodeStatusCollector {
     /// Build system info from the running environment.
     pub fn collect_system_info(&self) -> NodeSystemInfo {
         NodeSystemInfo {
-            kubelet_version: format!("v{}", env!("CARGO_PKG_VERSION")),
+            kubelet_version: env!("KUBERNETES_VERSION").to_string(),
             operating_system: std::env::consts::OS.to_string(),
             architecture: std::env::consts::ARCH.to_string(),
             kernel_version: Self::read_kernel_version(),

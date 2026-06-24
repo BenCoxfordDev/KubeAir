@@ -25,7 +25,7 @@
 #
 # Environment:
 #   KUBEAIR_REPO_PATH   Path to the kube-air source tree. Default: /workspace
-#   KUBERNETES_VERSION  Kubernetes version. Default: 1.33.0
+#   KUBERNETES_VERSION  Kubernetes version. Default: read from .version at repo root
 #   SKIP_BUILD          "1" to skip bazel build (reuse existing binary). Default: 0
 #   RUN_UNIT_TESTS      "1" to run unit/conformance/smoke tests. Default: 1
 #   RUN_E2E_TESTS       "1" to run live cluster e2e tests. Default: 1

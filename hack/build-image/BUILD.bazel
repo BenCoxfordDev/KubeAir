@@ -154,7 +154,7 @@ image_push(
     image = ":build_image_amd64",
     registry = "ghcr.io",
     repository = "bencoxforddev/kubeair/build",
-    tag = "1.33-amd64",
+    tag = "1.35-amd64",
     target_compatible_with = _LINUX_AMD64,
 )
 
@@ -163,7 +163,7 @@ image_push(
     image = ":build_image_arm64",
     registry = "ghcr.io",
     repository = "bencoxforddev/kubeair/build",
-    tag = "1.33-arm64",
+    tag = "1.35-arm64",
     target_compatible_with = _LINUX_ARM64,
 )
 
