@@ -141,8 +141,10 @@ printf '[bump]   kubectl amd64:  curl -fsSL https://dl.k8s.io/release/%s/bin/lin
 printf '[bump]   kubectl arm64:  curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kubectl | sha256sum\n' "$NEW_VERSION"
 printf '[bump]   kubeadm amd64:  curl -fsSL https://dl.k8s.io/release/%s/bin/linux/amd64/kubeadm | sha256sum\n' "$NEW_VERSION"
 printf '[bump]   kubeadm arm64:  curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kubeadm | sha256sum\n' "$NEW_VERSION"
-printf '[bump]   crictl:         https://github.com/kubernetes-sigs/cri-tools/releases/tag/%s\n' "$NEW_VERSION"
-printf '[bump]   k3s:            https://github.com/k3s-io/k3s/releases (find matching %s+k3s* tag)\n' "$NEW_VERSION"
+printf '[bump]   crictl amd64:  curl -fsSL https://github.com/kubernetes-sigs/cri-tools/releases/download/%s/crictl-%s-linux-amd64.tar.gz | sha256sum\n' "$NEW_VERSION" "$NEW_VERSION"
+printf '[bump]   crictl arm64:  curl -fsSL https://github.com/kubernetes-sigs/cri-tools/releases/download/%s/crictl-%s-linux-arm64.tar.gz | sha256sum\n' "$NEW_VERSION" "$NEW_VERSION"
+printf '[bump]   k3s amd64:  curl -fsSL https://github.com/k3s-io/k3s/releases/download/%s%%2Bk3s1/k3s | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   k3s arm64:  curl -fsSL https://github.com/k3s-io/k3s/releases/download/%s%%2Bk3s1/k3s-arm64 | sha256sum\n' "$NEW_VERSION"
 printf '[bump]\n'
 printf '[bump] After updating hack/deps/k8s-versions.bzl, regenerate the Bazel lock file:\n'
 printf '[bump]   bazel mod tidy\n'
