@@ -253,7 +253,7 @@ impl Kubelet {
             },
         ];
         status.system_info = NodeSystemInfo {
-            kubelet_version: env!("CARGO_PKG_VERSION").to_string(),
+            kubelet_version: env!("KUBERNETES_VERSION").to_string(),
             operating_system: std::env::consts::OS.to_string(),
             architecture: std::env::consts::ARCH.to_string(),
             ..Default::default()

@@ -21,7 +21,7 @@
 #   KUBECONFIG            Path to kubeconfig (required).
 #   ARTIFACT_DIR          Log/artifact output path. Default /tmp/k8s-upstream-e2e-artifacts.
 #   UPSTREAM_K8S_VERSION  Kubernetes release to fetch test binaries for.
-#                         Accepts v1.33.0, 1.33.0, stable, stable-1.33.
+#                         Accepts v1.35.0, 1.35.0, stable, stable-1.35.
 #                         Default: detect from cluster server version.
 #   RUN_CONFORMANCE       "1" to run conformance suite. Default 1.
 #   RUN_E2E               "1" to run non-conformance e2e suite. Default 0.

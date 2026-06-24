@@ -57,6 +57,24 @@ fn check_protoc_version() {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Expose the Kubernetes version from the workspace-root `.version` file so
+    // that node-status reporting can use `env!("KUBERNETES_VERSION")`.
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is always set by Cargo");
+    let version_path = std::path::Path::new(&manifest_dir).join("../../.version");
+    let version = std::fs::read_to_string(&version_path)
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to read .version at {}: {}",
+                version_path.display(),
+                e
+            )
+        })
+        .trim()
+        .to_string();
+    println!("cargo:rustc-env=KUBERNETES_VERSION={version}");
+    println!("cargo:rerun-if-changed=../../.version");
+
     check_protoc_version();
     tonic_build::configure()
         .build_server(true)
