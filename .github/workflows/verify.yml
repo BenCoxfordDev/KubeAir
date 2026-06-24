@@ -70,7 +70,7 @@ jobs:
           bazelisk-cache: true
           disk-cache: kubeair
           repository-cache: true
-          save-cache: ${{ github.ref == 'refs/heads/main' }}
+          cache-save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Ensure bazel symlink
         run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
