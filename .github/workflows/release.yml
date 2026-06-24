@@ -189,10 +189,6 @@ jobs:
       - name: Ensure bazel symlink
         run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel
 
-      - name: Clean Bazel state before rebuild
-        shell: bash
-        run: bazel clean --expunge
-
       - name: Build release binary
         run: just build ${{ matrix.artifact_arch }}
 
