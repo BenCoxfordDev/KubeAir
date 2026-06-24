@@ -72,6 +72,30 @@ require_cmd() {
 
 require_cmd "$CONTAINER_RUNTIME" "$CONTAINER_RUNTIME"
 
+# ── Rootless podman guard ─────────────────────────────────────────────────────
+# Creating bridge network interfaces (required by the CNI bridge plugin) fails
+# with EPERM inside a rootless container even with --privileged, because the
+# host user doesn't have CAP_NET_ADMIN in the real root network namespace.
+# The tests will appear to run but all pods will fail with SandboxCreationFailed.
+#
+# Fix: switch the podman machine to rootful (one-time setup):
+#   podman machine stop
+#   podman machine set --rootful
+#   podman machine start
+if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
+  if podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null | grep -q "^true$"; then
+    die "podman is running in rootless mode, which cannot create bridge network interfaces.
+  The go-e2e suite needs a rootful container to set up CNI pod networking.
+
+  Fix (one-time):
+    podman machine stop
+    podman machine set --rootful
+    podman machine start
+
+  Then re-run: just go-e2e"
+  fi
+fi
+
 step "Running upstream Kubernetes Go e2e suite"
 log "Runtime:  $CONTAINER_RUNTIME"
 log "Image:    $BUILD_IMAGE"

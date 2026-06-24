@@ -43,6 +43,31 @@ chmod +x "$KUBELET_BIN"
 command -v k3s >/dev/null 2>&1 || die "k3s not found on PATH — ensure the build image includes /usr/local/bin/k3s"
 log "k3s: $(k3s --version | head -1)"
 
+# ── iptables symlinks ──────────────────────────────────────────────────────────
+# The build image is assembled by rules_distroless which does not run postinst
+# scripts, so update-alternatives never creates the unversioned /usr/sbin/iptables
+# symlink.  The CNI bridge plugin calls "iptables" directly and fails with
+# "failed to locate iptables" when the symlink is absent.
+# Prefer iptables-legacy (direct kernel netfilter) over the nft wrapper.
+for _cmd in iptables iptables-restore iptables-save \
+            ip6tables ip6tables-restore ip6tables-save; do
+  if ! command -v "$_cmd" >/dev/null 2>&1; then
+    _legacy="/usr/sbin/${_cmd}-legacy"
+    _nft="/usr/sbin/${_cmd}-nft"
+    if [[ -x "$_legacy" ]]; then
+      ln -sf "$_legacy" "/usr/sbin/${_cmd}"
+      log "Linked /usr/sbin/${_cmd} -> ${_legacy}"
+    elif [[ -x "$_nft" ]]; then
+      ln -sf "$_nft" "/usr/sbin/${_cmd}"
+      log "Linked /usr/sbin/${_cmd} -> ${_nft}"
+    else
+      log "Warning: no ${_cmd} variant found in /usr/sbin"
+    fi
+  fi
+done
+# Ensure /usr/sbin is on PATH for containerd/CNI processes.
+export PATH="/usr/sbin:$PATH"
+
 # ── Reset ──────────────────────────────────────────────────────────────────────
 
 if [[ "$RESET_EXISTING" == "1" ]]; then
@@ -57,8 +82,34 @@ step "Starting containerd"
 
 mkdir -p /run/containerd /var/lib/containerd /etc/containerd
 
-if [[ ! -f /etc/containerd/config.toml ]]; then
-  containerd config default > /etc/containerd/config.toml
+# Generate default config, then switch to the native snapshotter when overlay
+# mounts are unavailable (e.g. running inside a container on macOS with podman).
+# We test overlayfs support by attempting a real mount; if it fails we fall back
+# to native so image pulls don't break with "failed to mount ... tmpmounts".
+containerd config default > /etc/containerd/config.toml
+
+_use_native=0
+if ! grep -q "snapshotter.*=.*\"native\"" /etc/containerd/config.toml; then
+  # Quick probe: try an overlay mount into a temp dir.
+  _probe_lower="$(mktemp -d)" _probe_upper="$(mktemp -d)" \
+  _probe_work="$(mktemp -d)"  _probe_merged="$(mktemp -d)"
+  if ! mount -t overlay overlay \
+       -o "lowerdir=${_probe_lower},upperdir=${_probe_upper},workdir=${_probe_work}" \
+       "${_probe_merged}" 2>/dev/null; then
+    _use_native=1
+  else
+    umount "${_probe_merged}" 2>/dev/null || true
+  fi
+  rm -rf "${_probe_lower}" "${_probe_upper}" "${_probe_work}" "${_probe_merged}"
+fi
+
+if [[ "$_use_native" == "1" ]]; then
+  log "overlayfs unavailable — switching containerd snapshotter to native"
+  sed -i 's/snapshotter = "overlayfs"/snapshotter = "native"/' /etc/containerd/config.toml
+  # Also patch the CRI plugin block if present
+  sed -i 's/\(snapshotter\s*=\s*\)"overlayfs"/\1"native"/g' /etc/containerd/config.toml
+else
+  log "overlayfs available — using default snapshotter"
 fi
 
 nohup containerd >/tmp/containerd.log 2>&1 &
@@ -117,6 +168,34 @@ CNIEOF
 
 log "CNI config written to /etc/cni/net.d/10-kubeair-e2e.conflist"
 
+# Load kernel modules required for bridge networking and CNI masquerade rules.
+modprobe bridge 2>/dev/null || true
+modprobe br_netfilter 2>/dev/null || true
+modprobe overlay 2>/dev/null || true
+
+# Enable sysctls needed for CNI bridge and pod networking.
+sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+sysctl -w net.bridge.bridge-nf-call-iptables=1 >/dev/null 2>&1 || true
+sysctl -w net.bridge.bridge-nf-call-ip6tables=1 >/dev/null 2>&1 || true
+
+# Pre-create the cni0 bridge so the CNI plugin never has to create it itself.
+# Inside a container (e.g. podman on macOS) the bridge plugin's RTNETLINK
+# "ip link add" call returns EPERM even with --privileged because the macOS VM
+# kernel blocks new bridge device creation from nested namespaces.
+# The bridge plugin will re-use an existing bridge without requiring that
+# capability, so we create it here where we already have it.
+if ! ip link show cni0 &>/dev/null; then
+  if ip link add cni0 type bridge 2>/dev/null; then
+    ip link set cni0 up
+    ip addr add 10.88.0.1/16 dev cni0 2>/dev/null || true
+    log "Pre-created cni0 bridge (10.88.0.1/16)"
+  else
+    log "Warning: could not pre-create cni0 bridge — CNI plugin will attempt it at runtime"
+  fi
+else
+  log "cni0 bridge already exists"
+fi
+
 # ── Start k3s server (control plane only) ─────────────────────────────────────
 
 step "Starting k3s server (control plane only, --disable-agent)"
@@ -164,6 +243,10 @@ step "Starting kube-air kubelet"
 
 NODE_NAME="$(hostname | tr '[:upper:]' '[:lower:]')"
 mkdir -p /var/lib/kubelet /var/log/pods
+
+# Remove any stale TLS serving cert so the kubelet regenerates it with the
+# correct InternalIP SAN for this run.
+rm -f /var/lib/kubelet/pki/kubelet-serving.crt /var/lib/kubelet/pki/kubelet-serving.key
 
 nohup "$KUBELET_BIN" \
   --kubeconfig=/etc/rancher/k3s/k3s.yaml \
