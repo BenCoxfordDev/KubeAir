@@ -77,6 +77,8 @@ normalize_version() {
     printf '%s' "$raw"
     return 0
   fi
+  # Strip build metadata suffixes such as +k3s1, +k3s2 used by k3s distributions.
+  raw="${raw%%+*}"
   if [[ "$raw" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     printf '%s' "$raw"
     return 0
