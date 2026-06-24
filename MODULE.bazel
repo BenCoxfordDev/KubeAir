@@ -156,6 +156,22 @@ http_archive(
     urls = ["https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-aarch64-unknown-linux-musl.tar.gz"],
 )
 
+http_archive(
+    name = "cargo_deny_darwin_arm64",
+    build_file_content = 'exports_files(["cargo-deny"])',
+    sha256 = "be6fd555e910ac360e25cbef4f16ead47d87d2545fa07aa27223ef0f9af1a02c",
+    strip_prefix = "cargo-deny-0.19.9-aarch64-apple-darwin",
+    urls = ["https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-aarch64-apple-darwin.tar.gz"],
+)
+
+http_archive(
+    name = "cargo_deny_darwin_amd64",
+    build_file_content = 'exports_files(["cargo-deny"])',
+    sha256 = "3336724665a3aef124a9e4c79cb59968df36d21bfcda5ae596abe2a7874b1938",
+    strip_prefix = "cargo-deny-0.19.9-x86_64-apple-darwin",
+    urls = ["https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-x86_64-apple-darwin.tar.gz"],
+)
+
 # Debian Trixie packages installed into the build image via rules_distroless apt.
 # After changing packages yaml files, regenerate the locks: just lock-build-image
 apt = use_extension("@rules_distroless//apt:extensions.bzl", "apt")

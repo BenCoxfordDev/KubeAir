@@ -102,6 +102,7 @@ rust_library(
     proc_macro_deps = [
         "@crates//:async-trait",
     ],
+    rustc_env_files = [":kubernetes_version_env"],
     deps = [
         "//crates/kubelet-core/src:lib",
         "//crates/kubelet-ports/src:lib",
