@@ -1,5 +1,14 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
+# Read the Kubernetes version from .version and expose it as KUBERNETES_VERSION
+# for env!("KUBERNETES_VERSION") in Rust source.
+genrule(
+    name = "kubernetes_version_env",
+    srcs = ["//:version"],
+    outs = ["kubernetes_version.env"],
+    cmd = "echo KUBERNETES_VERSION=$$(cat $<) | tr -d '[:space:]' | sed 's/KUBERNETES_VERSION=/KUBERNETES_VERSION=/' > $@",
+)
+
 # gazelle:ignore
 # gazelle:exclude active_deadline
 # gazelle:exclude admission
@@ -52,6 +61,7 @@ rust_library(
     proc_macro_deps = [
         "@crates//:async-trait",
     ],
+    rustc_env_files = [":kubernetes_version_env"],
     visibility = ["//visibility:public"],
     deps = [
         "//crates/kubelet-core/src:lib",

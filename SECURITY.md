@@ -6,8 +6,8 @@ KubeAir supports the two most recent release lines. Security fixes are backporte
 
 | Version    | Supported |
 | ---------- | --------- |
-| `1.33.x` | ✅ Yes    |
-| `< 1.33` | ❌ No     |
+| `1.35.x` | ✅ Yes    |
+| `< 1.35` | ❌ No     |
 
 ## Reporting a Vulnerability
 

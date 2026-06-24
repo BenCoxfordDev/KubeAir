@@ -4,11 +4,11 @@ name: Build Image
 # definition changes, or on demand.
 #
 # Image: ghcr.io/bencoxforddev/kubeair/build:<k8s-major>.<k8s-minor>
-# e.g.   ghcr.io/bencoxforddev/kubeair/build:1.33
+# e.g.   ghcr.io/bencoxforddev/kubeair/build:1.35
 #
 # The tag tracks the Kubernetes version baked into the image (kubectl/kubeadm).
-# Bump KUBERNETES_VERSION below (and the corresponding pins in MODULE.bazel)
-# when upgrading Kubernetes.
+# The canonical version is in .version at the workspace root.
+# Bump .version (and the corresponding pins in MODULE.bazel) when upgrading Kubernetes.
 
 on:
   push:
@@ -17,12 +17,12 @@ on:
     paths:
       - 'hack/build-image/**'
       - 'MODULE.bazel'
+      - '.version'
   workflow_dispatch:
     inputs:
       kubernetes_version:
-        description: "Kubernetes major.minor tag to apply to the image (e.g. 1.33)"
+        description: "Kubernetes major.minor tag for the image (e.g. 1.35). Defaults to version in .version file."
         required: false
-        default: "1.33"
         type: string
 
 concurrency:
@@ -34,12 +34,31 @@ permissions:
   packages: write
 
 env:
-  K8S_TAG: ${{ inputs.kubernetes_version || '1.33' }}
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/bencoxforddev/kubeair/build
 
 jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      k8s_tag: ${{ steps.read.outputs.k8s_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve Kubernetes image tag
+        id: read
+        env:
+          INPUT_K8S_VERSION: ${{ inputs.kubernetes_version }}
+        run: |
+          if [[ -n "$INPUT_K8S_VERSION" ]]; then
+            K8S_TAG="$INPUT_K8S_VERSION"
+          else
+            K8S_VERSION=$(cat .version | tr -d '[:space:]')
+            K8S_TAG=$(echo "$K8S_VERSION" | sed 's/^v//' | cut -d. -f1,2)
+          fi
+          echo "k8s_tag=${K8S_TAG}" >> "$GITHUB_OUTPUT"
+
   build-and-push:
+    needs: [setup]
     strategy:
       matrix:
         include:
@@ -76,7 +95,7 @@ jobs:
             -- --tag "tmp-${{ github.sha }}-${{ matrix.arch }}"
 
   push:
-    needs: build-and-push
+    needs: [build-and-push, setup]
     runs-on: ubuntu-24.04
     steps:
       - name: Log in to GHCR
@@ -92,7 +111,7 @@ jobs:
       - name: Push multi-arch manifest index
         run: |
           crane index append \
-            -t ${{ env.IMAGE }}:${{ env.K8S_TAG }} \
+            -t ${{ env.IMAGE }}:${{ needs.setup.outputs.k8s_tag }} \
             -m ${{ env.IMAGE }}:tmp-${{ github.sha }}-amd64 \
             -m ${{ env.IMAGE }}:tmp-${{ github.sha }}-arm64
 

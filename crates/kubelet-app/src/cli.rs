@@ -26,7 +26,7 @@ use std::path::PathBuf;
 
 /// Kubernetes kubelet -- node agent
 #[derive(Debug, Parser)]
-#[command(name = "kubelet", version, about)]
+#[command(name = "kubelet", version = env!("KUBERNETES_VERSION"), about)]
 pub struct KubeletArgs {
     // -- Config file -------------------------------------------------------
     /// Path to a KubeletConfiguration YAML file (kubelet.config.k8s.io/v1beta1).

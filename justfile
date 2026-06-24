@@ -91,9 +91,12 @@ e2e:
 # Mirrors the k8s-go-e2e.yml CI workflow.
 # Override env vars as needed, e.g.:
 #   RUN_CONFORMANCE=1 RUN_E2E=0 just go-e2e
-#   UPSTREAM_K8S_VERSION=v1.33.0 just go-e2e
+#   UPSTREAM_K8S_VERSION=v1.35.0 just go-e2e
 go-e2e:
   bash hack/e2e/run-go-e2e.sh
 
 go-e2e-local:
   BUILD_IMAGE=ghcr.io/bencoxforddev/kubeair/build:local bash hack/e2e/run-go-e2e.sh
+
+bump-k8s-deps version="v1.35.0":
+  bash hack/bump-k8s-version.sh {{version}}

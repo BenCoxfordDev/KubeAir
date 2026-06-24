@@ -9,7 +9,15 @@ exports_files([
     "rustfmt.toml",
     "Cargo.toml",
     "Cargo.lock",
+    ".version",
 ])
+
+# Expose .version as a named target so crates can reference it via //:version.
+filegroup(
+    name = "version",
+    srcs = [".version"],
+    visibility = ["//visibility:public"],
+)
 
 # Platform definitions for cross-compilation
 # Include the libc constraint so hermetic_cc_toolchain's libc-aware toolchains are selected.

@@ -63,6 +63,19 @@ env:
   ARTIFACT_DIR:       /tmp/kubeair-e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      k8s_tag: ${{ steps.read.outputs.k8s_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read Kubernetes image tag from .version
+        id: read
+        run: |
+          K8S_VERSION=$(cat .version | tr -d '[:space:]')
+          K8S_TAG=$(echo "$K8S_VERSION" | sed 's/^v//' | cut -d. -f1,2)
+          echo "k8s_tag=${K8S_TAG}" >> "$GITHUB_OUTPUT"
+
   check-changes:
     runs-on: ubuntu-24.04
     if: github.event_name == 'pull_request'
@@ -84,11 +97,11 @@ jobs:
           fi
 
   kubernetes-rust-e2e:
-    needs: [check-changes]
+    needs: [check-changes, version]
     if: always() && (github.event_name != 'pull_request' || needs.check-changes.outputs.relevant == 'true')
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/bencoxforddev/kubeair/build:1.33
+      image: ghcr.io/bencoxforddev/kubeair/build:${{ needs.version.outputs.k8s_tag }}
       options: --privileged
     timeout-minutes: 60
 
