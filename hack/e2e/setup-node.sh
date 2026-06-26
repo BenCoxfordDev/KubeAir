@@ -260,7 +260,7 @@ apiServer:
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: InitConfiguration
 localAPIEndpoint:
-  advertiseAddress: "127.0.0.1"
+  advertiseAddress: "${_NODE_IP}"
   bindPort: 6443
 nodeRegistration:
   name: "${NODE_NAME}"
@@ -277,6 +277,13 @@ kubeadm init phase kubeconfig all \
   2>/tmp/kubeadm-kubeconfig.log \
   || { tail -20 /tmp/kubeadm-kubeconfig.log; die "kubeadm init phase kubeconfig failed"; }
 log "Kubeconfigs generated in /etc/kubernetes/"
+
+# The generated kubeconfigs bind to _NODE_IP; rewrite the server address to
+# 127.0.0.1 so kubectl/test binaries work from inside the same container.
+sed -i "s|https://${_NODE_IP}:6443|https://127.0.0.1:6443|g" \
+  /etc/kubernetes/admin.conf \
+  /etc/kubernetes/controller-manager.conf \
+  /etc/kubernetes/scheduler.conf 2>/dev/null || true
 
 # Standard location for kubectl
 mkdir -p "$HOME/.kube"
@@ -331,12 +338,11 @@ log "etcd started (PID $!)"
 
 # Wait for etcd to become healthy
 for i in $(seq 1 30); do
-  if etcdctl \
-       --endpoints=https://127.0.0.1:2379 \
-       --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-       --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
-       --key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
-       endpoint health >/dev/null 2>&1; then
+  if curl -sf \
+       --cacert /etc/kubernetes/pki/etcd/ca.crt \
+       --cert /etc/kubernetes/pki/etcd/healthcheck-client.crt \
+       --key /etc/kubernetes/pki/etcd/healthcheck-client.key \
+       https://127.0.0.1:2379/health >/dev/null 2>&1; then
     log "etcd is healthy"
     break
   fi
@@ -359,6 +365,7 @@ nohup kube-apiserver \
   --etcd-keyfile=/etc/kubernetes/pki/apiserver-etcd-client.key \
   --service-cluster-ip-range=10.96.0.0/12 \
   --bind-address=0.0.0.0 \
+  --advertise-address=127.0.0.1 \
   --secure-port=6443 \
   --tls-cert-file=/etc/kubernetes/pki/apiserver.crt \
   --tls-private-key-file=/etc/kubernetes/pki/apiserver.key \
