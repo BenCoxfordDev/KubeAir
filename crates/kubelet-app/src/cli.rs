@@ -26,8 +26,16 @@ use std::path::PathBuf;
 
 /// Kubernetes kubelet -- node agent
 #[derive(Debug, Parser)]
-#[command(name = "kubelet", version = env!("KUBERNETES_VERSION"), about)]
+#[command(name = "kubelet", disable_version_flag = true, about)]
 pub struct KubeletArgs {
+    // -- Version -----------------------------------------------------------
+    /// Print version and exit.
+    ///
+    /// Outputs `Kubernetes <version>` to match the upstream Go kubelet format
+    /// expected by kubeadm and other tooling.
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    pub version: bool,
+
     // -- Config file -------------------------------------------------------
     /// Path to a KubeletConfiguration YAML file (kubelet.config.k8s.io/v1beta1).
     /// CLI flags override individual fields from the file.
@@ -325,6 +333,7 @@ mod tests {
     #[test]
     fn test_args_defaults_produce_valid_config() {
         let args = KubeletArgs {
+            version: false,
             config: None,
             node_name: Some("test-node".to_string()),
             api_server: Some("https://localhost:6443".to_string()),
@@ -372,6 +381,7 @@ mod tests {
     #[test]
     fn test_cli_flags_override_defaults() {
         let args = KubeletArgs {
+            version: false,
             config: None,
             node_name: Some("my-node".to_string()),
             api_server: Some("https://localhost:6443".to_string()),

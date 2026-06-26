@@ -1805,3 +1805,221 @@ async fn e2e_spec_hostname_overrides_pod_name() {
 
     cleanup_pod(&pods, pod_name).await;
 }
+
+/// A readiness probe gates `ContainersReady`/`Ready` conditions.
+///
+/// Runs a busybox httpd on port 8080 with a readiness probe hitting `/ready`.
+/// After the probe passes the pod must report `ContainersReady=True` and
+/// `Ready=True`.  This is the scenario that was causing `SynchronizedBeforeSuite`
+/// failures in the Go e2e suite: coredns would start Running but never become
+/// Ready because the readiness probe task exited on a transient CRI error.
+///
+/// Mirrors: `TestReadinessHTTP` in the Go kubelet node e2e suite.
+#[tokio::test]
+#[ignore]
+async fn e2e_readiness_probe_gates_pod_ready_condition() {
+    use k8s_openapi::api::core::v1::{HTTPGetAction, Probe};
+    use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
+
+    let client = cluster_client().await;
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+
+    let pod_name = "kubeair-e2e-readiness-gate";
+    cleanup_pod(&pods, pod_name).await;
+
+    // httpd serves /ready → probe passes immediately after initialDelay.
+    let manifest = Pod {
+        metadata: ObjectMeta {
+            name: Some(pod_name.to_string()),
+            namespace: Some("default".to_string()),
+            ..Default::default()
+        },
+        spec: Some(PodSpec {
+            containers: vec![Container {
+                name: "server".to_string(),
+                image: Some("busybox:1.36".to_string()),
+                command: Some(vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "mkdir -p /www && echo ok > /www/ready && httpd -f -p 8080 -h /www".into(),
+                ]),
+                image_pull_policy: Some("IfNotPresent".to_string()),
+                readiness_probe: Some(Probe {
+                    http_get: Some(HTTPGetAction {
+                        path: Some("/ready".to_string()),
+                        port: IntOrString::Int(8080),
+                        scheme: Some("HTTP".to_string()),
+                        ..Default::default()
+                    }),
+                    initial_delay_seconds: Some(3),
+                    period_seconds: Some(3),
+                    success_threshold: Some(1),
+                    failure_threshold: Some(3),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            restart_policy: Some("Never".to_string()),
+            tolerations: Some(vec![taint_toleration()]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    pods.create(&PostParams::default(), &manifest)
+        .await
+        .expect("Failed to create pod");
+
+    let ready = wait_for_pod_running(&pods, pod_name, Duration::from_secs(60)).await;
+    assert!(
+        ready,
+        "Pod with passing readiness probe must reach Running+Ready within 60s"
+    );
+
+    // Verify the conditions directly.
+    let pod = pods.get(pod_name).await.expect("Failed to get pod");
+    let conditions = pod
+        .status
+        .as_ref()
+        .and_then(|s| s.conditions.as_deref())
+        .unwrap_or(&[]);
+
+    let containers_ready = conditions
+        .iter()
+        .find(|c| c.type_ == "ContainersReady")
+        .map(|c| c.status.as_str())
+        .unwrap_or("Missing");
+
+    let pod_ready = conditions
+        .iter()
+        .find(|c| c.type_ == "Ready")
+        .map(|c| c.status.as_str())
+        .unwrap_or("Missing");
+
+    assert_eq!(
+        containers_ready, "True",
+        "ContainersReady condition must be True when readiness probe passes, got {containers_ready}"
+    );
+    assert_eq!(
+        pod_ready, "True",
+        "Ready condition must be True when readiness probe passes, got {pod_ready}"
+    );
+
+    cleanup_pod(&pods, pod_name).await;
+}
+
+/// A failing readiness probe must mark the pod not-ready without restarting it.
+///
+/// Runs a container that never opens port 8080, so the readiness probe always
+/// fails.  The pod must stay Running (no restarts) but `ContainersReady` and
+/// `Ready` conditions must be `False`.
+///
+/// Mirrors: `TestReadinessFailure` in the Go kubelet node e2e suite.
+#[tokio::test]
+#[ignore]
+async fn e2e_readiness_probe_failing_pod_stays_running_but_not_ready() {
+    use k8s_openapi::api::core::v1::{HTTPGetAction, Probe};
+    use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
+
+    let client = cluster_client().await;
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+
+    let pod_name = "kubeair-e2e-readiness-fail";
+    cleanup_pod(&pods, pod_name).await;
+
+    // Container sleeps — never opens port 8080 so the probe always fails.
+    let manifest = Pod {
+        metadata: ObjectMeta {
+            name: Some(pod_name.to_string()),
+            namespace: Some("default".to_string()),
+            ..Default::default()
+        },
+        spec: Some(PodSpec {
+            containers: vec![Container {
+                name: "sleeper".to_string(),
+                image: Some("busybox:1.36".to_string()),
+                command: Some(vec!["sleep".into(), "300".into()]),
+                image_pull_policy: Some("IfNotPresent".to_string()),
+                readiness_probe: Some(Probe {
+                    http_get: Some(HTTPGetAction {
+                        path: Some("/ready".to_string()),
+                        port: IntOrString::Int(8080),
+                        scheme: Some("HTTP".to_string()),
+                        ..Default::default()
+                    }),
+                    initial_delay_seconds: Some(3),
+                    period_seconds: Some(3),
+                    success_threshold: Some(1),
+                    failure_threshold: Some(1),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            restart_policy: Some("Always".to_string()),
+            tolerations: Some(vec![taint_toleration()]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    pods.create(&PostParams::default(), &manifest)
+        .await
+        .expect("Failed to create pod");
+
+    // Wait for container to start (phase Running) — readiness probe will fail
+    // but the container itself should be running.
+    let phase = wait_for_pod_phase(&pods, pod_name, &["Running"], Duration::from_secs(60)).await;
+    assert_eq!(
+        phase.as_deref(),
+        Some("Running"),
+        "Pod must enter Running phase even with failing readiness probe"
+    );
+
+    // Allow several probe periods to elapse so the kubelet has reported
+    // ContainersReady=False.
+    tokio::time::sleep(Duration::from_secs(20)).await;
+
+    let pod = pods.get(pod_name).await.expect("Failed to get pod");
+
+    // Must still be Running (readiness failure must NOT restart the container).
+    let current_phase = pod
+        .status
+        .as_ref()
+        .and_then(|s| s.phase.as_deref())
+        .unwrap_or("Unknown");
+    assert_eq!(
+        current_phase, "Running",
+        "Failing readiness probe must not change pod phase; got {current_phase}"
+    );
+
+    let restart_count = pod
+        .status
+        .as_ref()
+        .and_then(|s| s.container_statuses.as_deref())
+        .and_then(|cs| cs.first())
+        .map(|c| c.restart_count)
+        .unwrap_or(-1);
+    assert_eq!(
+        restart_count, 0,
+        "Failing readiness probe must not restart the container; got {restart_count} restarts"
+    );
+
+    let conditions = pod
+        .status
+        .as_ref()
+        .and_then(|s| s.conditions.as_deref())
+        .unwrap_or(&[]);
+
+    let containers_ready = conditions
+        .iter()
+        .find(|c| c.type_ == "ContainersReady")
+        .map(|c| c.status.as_str())
+        .unwrap_or("Missing");
+
+    assert_eq!(
+        containers_ready, "False",
+        "ContainersReady must be False when readiness probe fails, got {containers_ready}"
+    );
+
+    cleanup_pod(&pods, pod_name).await;
+}

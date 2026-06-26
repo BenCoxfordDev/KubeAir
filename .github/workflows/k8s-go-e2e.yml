@@ -1,9 +1,8 @@
 name: K8s Upstream Go E2E
 
-# Runs upstream Kubernetes Go conformance/e2e tests against a k3s cluster
-# provisioned with the kube-air kubelet inside the CI build container.
-#
-# All execution happens inside a privileged build container — no systemd needed.
+# Runs upstream Kubernetes Go conformance/e2e tests against a single-node
+# Kubernetes cluster provisioned with the kube-air kubelet inside the CI build
+# container. No systemd or k3s required — pure upstream binaries.
 
 on:
   workflow_dispatch:
@@ -26,7 +25,7 @@ on:
       conformance_skip:
         description: "Regex skip for conformance"
         required: false
-        default: "\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]"
+        default: "\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]|\\[Privileged:ClusterAdmin\\]|two untainted nodes"
         type: string
       e2e_focus:
         description: "Regex focus for e2e"
@@ -131,14 +130,16 @@ jobs:
         if: failure()
         shell: bash
         env:
-          KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          KUBECONFIG: /etc/kubernetes/admin.conf
         run: |
           mkdir -p "$ARTIFACT_DIR/cluster-state"
-          k3s kubectl get nodes -o wide > "$ARTIFACT_DIR/cluster-state/nodes.txt" 2>&1 || true
-          k3s kubectl get pods --all-namespaces -o wide > "$ARTIFACT_DIR/cluster-state/pods.txt" 2>&1 || true
-          k3s kubectl get events --all-namespaces --sort-by=.lastTimestamp > "$ARTIFACT_DIR/cluster-state/events.txt" 2>&1 || true
+          kubectl get nodes -o wide > "$ARTIFACT_DIR/cluster-state/nodes.txt" 2>&1 || true
+          kubectl get pods --all-namespaces -o wide > "$ARTIFACT_DIR/cluster-state/pods.txt" 2>&1 || true
+          kubectl get events --all-namespaces --sort-by=.lastTimestamp > "$ARTIFACT_DIR/cluster-state/events.txt" 2>&1 || true
           tail -200 /tmp/kubelet.log > "$ARTIFACT_DIR/cluster-state/kubelet.log" 2>&1 || true
-          tail -100 /tmp/k3s-server.log > "$ARTIFACT_DIR/cluster-state/k3s-server.log" 2>&1 || true
+          tail -100 /tmp/kube-apiserver.log > "$ARTIFACT_DIR/cluster-state/kube-apiserver.log" 2>&1 || true
+          tail -100 /tmp/etcd.log > "$ARTIFACT_DIR/cluster-state/etcd.log" 2>&1 || true
+          tail -100 /tmp/kube-proxy.log > "$ARTIFACT_DIR/cluster-state/kube-proxy.log" 2>&1 || true
 
       - name: Upload upstream Go e2e artifacts
         if: always()
@@ -148,7 +149,8 @@ jobs:
           path: |
             ${{ env.ARTIFACT_DIR }}/
             /tmp/go-e2e-in-container.log
-            /tmp/k3s-server.log
+            /tmp/kube-apiserver.log
+            /tmp/etcd.log
             /tmp/kubelet.log
             /tmp/kubelet-memory.csv
           if-no-files-found: ignore

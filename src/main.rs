@@ -70,6 +70,14 @@ async fn async_main() -> anyhow::Result<()> {
         .expect("Failed to install rustls ring crypto provider");
 
     let args = KubeletArgs::parse();
+
+    // Print version in the exact format kubeadm/tooling expect and exit.
+    // The Go kubelet outputs `Kubernetes v1.35.0` (not `kubelet v1.35.0`).
+    if args.version {
+        println!("Kubernetes v{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     let cli_verbosity = args.v;
 
     // Parse config first (before logging) so we can use logging.verbosity from
