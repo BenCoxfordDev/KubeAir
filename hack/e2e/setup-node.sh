@@ -737,7 +737,8 @@ _upstream_dns="$(grep -E '^nameserver[[:space:]]' /etc/resolv.conf \
   | grep -v '^127\.' \
   | grep -v '^::1$' \
   | tr '\n' ' ' \
-  | sed 's/[[:space:]]*$//')"
+  | sed 's/[[:space:]]*$//' \
+  || true)"
 
 if [[ -z "$_upstream_dns" ]]; then
   log "No non-loopback nameservers found in /etc/resolv.conf — using 8.8.8.8 8.8.4.4"
