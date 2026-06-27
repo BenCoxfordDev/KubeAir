@@ -134,20 +134,20 @@ jobs:
 
       # ── Provision cluster ──────────────────────────────────────────────────────
 
-      - name: Provision k3s cluster
+      - name: Provision cluster
         shell: bash
         run: |
-          chmod +x hack/e2e/setup-node-k3s.sh
+          chmod +x hack/e2e/setup-node.sh
           KUBELET_BIN="$GITHUB_WORKSPACE/bazel-bin/src/main" \
           RESET_EXISTING="$RESET_EXISTING" \
-          bash hack/e2e/setup-node-k3s.sh 2>&1 | tee /tmp/setup-k3s.log
+          bash hack/e2e/setup-node.sh 2>&1 | tee /tmp/setup-node.log
 
       - name: Upload setup log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: setup-k3s-log
-          path: /tmp/setup-k3s.log
+          name: setup-node-log
+          path: /tmp/setup-node.log
           if-no-files-found: ignore
 
       # ── Run tests ──────────────────────────────────────────────────────────────
@@ -164,7 +164,7 @@ jobs:
         shell: bash
         run: |
           chmod +x hack/e2e/run-cluster-tests.sh
-          KUBECONFIG=/etc/rancher/k3s/k3s.yaml \
+          KUBECONFIG=/etc/kubernetes/admin.conf \
           KUBEAIR_REPO_PATH="$GITHUB_WORKSPACE" \
           RUN_UNIT_TESTS="$RUN_UNIT_TESTS" \
           RUN_E2E_TESTS="$RUN_E2E_TESTS" \
@@ -187,20 +187,18 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          export KUBECONFIG=/etc/kubernetes/admin.conf
           mkdir -p "$ARTIFACT_DIR/cluster-state"
-          k3s kubectl get pods --all-namespaces -o wide \
+          kubectl get pods --all-namespaces -o wide \
             > "$ARTIFACT_DIR/cluster-state/pods.txt" 2>&1 || true
-          k3s kubectl get nodes -o wide \
+          kubectl get nodes -o wide \
             > "$ARTIFACT_DIR/cluster-state/nodes.txt" 2>&1 || true
-          k3s kubectl describe nodes \
+          kubectl describe nodes \
             > "$ARTIFACT_DIR/cluster-state/describe-nodes.txt" 2>&1 || true
-          k3s kubectl get events --all-namespaces --sort-by=.lastTimestamp \
+          kubectl get events --all-namespaces --sort-by=.lastTimestamp \
             > "$ARTIFACT_DIR/cluster-state/events.txt" 2>&1 || true
           tail -200 /tmp/kubelet.log \
             > "$ARTIFACT_DIR/cluster-state/kubelet.log" 2>&1 || true
-          tail -100 /tmp/k3s-server.log \
-            > "$ARTIFACT_DIR/cluster-state/k3s-server.log" 2>&1 || true
           tail -100 /tmp/containerd.log \
             > "$ARTIFACT_DIR/cluster-state/containerd.log" 2>&1 || true
 
@@ -208,12 +206,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: k3s-e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          name: e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.ARTIFACT_DIR }}/
-            /tmp/setup-k3s.log
+            /tmp/setup-node.log
             /tmp/run-cluster-tests.log
-            /tmp/k3s-server.log
             /tmp/kubelet.log
             /tmp/containerd.log
             /tmp/kubelet-memory.csv

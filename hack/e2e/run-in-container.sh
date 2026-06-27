@@ -16,8 +16,8 @@
 #
 # run-in-container.sh — Entry point executed inside the CI build container.
 #
-# Builds the kube-air kubelet with Bazel, provisions a k3s cluster using
-# setup-node-k3s.sh, then runs run-cluster-tests.sh against it.
+# Builds the kube-air kubelet with Bazel, provisions an upstream Kubernetes
+# cluster using setup-node.sh, then runs run-cluster-tests.sh against it.
 #
 # This script is used by both:
 #   - hack/e2e/run-e2e.sh  (local macOS dev via podman/docker)
@@ -86,12 +86,12 @@ KUBELET_BIN="$KUBEAIR_REPO_PATH/bazel-bin/src/main"
 
 log "kubelet binary: $KUBELET_BIN ($(du -sh "$KUBELET_BIN" | cut -f1))"
 
-# ── Provision k3s cluster ──────────────────────────────────────────────────────
+# ── Provision cluster ────────────────────────────────────────────────────────
 
-step "Provisioning k3s cluster"
+step "Provisioning cluster"
 
 KUBELET_BIN="$KUBELET_BIN" \
-bash "$KUBEAIR_REPO_PATH/hack/e2e/setup-node-k3s.sh"
+bash "$KUBEAIR_REPO_PATH/hack/e2e/setup-node.sh"
 
 # ── Monitor kubelet memory ─────────────────────────────────────────────────────
 
@@ -104,7 +104,7 @@ MONITOR_PID=$!
 step "Running cluster tests"
 
 KUBEAIR_REPO_PATH="$KUBEAIR_REPO_PATH" \
-KUBECONFIG=/etc/rancher/k3s/k3s.yaml \
+KUBECONFIG=/etc/kubernetes/admin.conf \
 RUN_UNIT_TESTS="$RUN_UNIT_TESTS" \
 RUN_E2E_TESTS="$RUN_E2E_TESTS" \
 ARTIFACT_DIR="$ARTIFACT_DIR" \

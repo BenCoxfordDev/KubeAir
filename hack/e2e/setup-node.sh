@@ -205,14 +205,43 @@ step "Configuring bridge CNI (10.88.0.0/16)"
 
 mkdir -p /etc/cni/net.d
 
-if [[ -d /usr/lib/cni ]] && [[ ! -e /opt/cni/bin ]]; then
-  mkdir -p /opt/cni
-  ln -sf /usr/lib/cni /opt/cni/bin
+# Detect where CNI plugins live and ensure /opt/cni/bin points there.
+_cni_bin_dir=""
+for _candidate in /opt/cni/bin /usr/lib/cni /usr/libexec/cni /usr/local/lib/cni; do
+  if [[ -x "${_candidate}/bridge" ]]; then
+    _cni_bin_dir="$_candidate"
+    break
+  fi
+done
+
+if [[ -z "$_cni_bin_dir" ]]; then
+  # Last resort: search the whole filesystem
+  _bridge_bin="$(find /usr /opt -name bridge -type f -perm /111 2>/dev/null | head -1)"
+  if [[ -n "$_bridge_bin" ]]; then
+    _cni_bin_dir="$(dirname "$_bridge_bin")"
+  fi
 fi
 
-cat > /etc/cni/net.d/10-kubeair-e2e.conflist <<'CNIEOF'
+[[ -n "$_cni_bin_dir" ]] || die "CNI bridge plugin not found — ensure the build image is up to date"
+log "CNI plugins directory: $_cni_bin_dir"
+
+# Symlink /opt/cni/bin to the discovered dir if it isn't already the right place.
+if [[ "$_cni_bin_dir" != "/opt/cni/bin" ]]; then
+  mkdir -p /opt/cni
+  rm -f /opt/cni/bin
+  ln -sf "$_cni_bin_dir" /opt/cni/bin
+  log "Linked /opt/cni/bin -> $_cni_bin_dir"
+fi
+
+# Determine whether portmap plugin is available — omit from config if not.
+_have_portmap=0
+[[ -x "${_cni_bin_dir}/portmap" ]] && _have_portmap=1
+log "portmap plugin available: $_have_portmap"
+
+if [[ "$_have_portmap" == 1 ]]; then
+  cat > /etc/cni/net.d/10-kubeair-e2e.conflist <<'CNIEOF'
 {
-  "cniVersion": "1.0.0",
+  "cniVersion": "0.4.0",
   "name": "kubeair-e2e",
   "plugins": [
     {
@@ -234,8 +263,38 @@ cat > /etc/cni/net.d/10-kubeair-e2e.conflist <<'CNIEOF'
   ]
 }
 CNIEOF
+else
+  cat > /etc/cni/net.d/10-kubeair-e2e.conflist <<'CNIEOF'
+{
+  "cniVersion": "0.4.0",
+  "name": "kubeair-e2e",
+  "plugins": [
+    {
+      "type": "bridge",
+      "bridge": "cni0",
+      "isGateway": true,
+      "ipMasq": true,
+      "promiscMode": true,
+      "ipam": {
+        "type": "host-local",
+        "ranges": [[{"subnet": "10.88.0.0/16"}]],
+        "routes": [{"dst": "0.0.0.0/0"}]
+      }
+    }
+  ]
+}
+CNIEOF
+fi
 
-log "CNI config written"
+log "CNI config written (portmap=${_have_portmap})"
+
+# Validate that host-local IPAM plugin is also present (required for bridge CNI)
+if [[ ! -x "${_cni_bin_dir}/host-local" ]]; then
+  log "WARNING: host-local IPAM plugin not found in $_cni_bin_dir — CNI will fail"
+  ls -la "$_cni_bin_dir" 2>/dev/null || true
+fi
+
+log "CNI binaries available: $(ls "$_cni_bin_dir" 2>/dev/null | tr '\n' ' ')"
 
 modprobe bridge 2>/dev/null || true
 modprobe br_netfilter 2>/dev/null || true
@@ -593,6 +652,8 @@ nohup "$KUBELET_BIN" \
   --config=/var/lib/kubelet/kubelet-config.yaml \
   --tls-cert-file="$_KUBELET_CERT" \
   --tls-private-key-file="$_KUBELET_KEY" \
+  --cni-bin-dir="$_cni_bin_dir" \
+  --cni-conf-dir=/etc/cni/net.d \
   >/tmp/kubelet.log 2>&1 &
 
 KUBELET_PID=$!
@@ -664,10 +725,30 @@ done
 # Uses dnsPolicy=Default (so the CoreDNS pod uses the node's real resolver, not
 # its own ClusterIP) and expire 8m in the forward block (to recycle connections
 # before NAT conntrack expiry at ~13m inside nested containers on macOS).
+#
+# The forward plugin needs real upstream nameservers.  Inside a nested podman
+# container on macOS, /etc/resolv.conf often lists 127.0.0.11 (podman's
+# embedded DNS), which is a loopback address unreachable from pod network
+# namespaces.  Detect non-loopback servers from /etc/resolv.conf; fall back
+# to 8.8.8.8 8.8.4.4 when nothing usable is found.
+
+_upstream_dns="$(grep -E '^nameserver[[:space:]]' /etc/resolv.conf \
+  | awk '{print $2}' \
+  | grep -v '^127\.' \
+  | grep -v '^::1$' \
+  | tr '\n' ' ' \
+  | sed 's/[[:space:]]*$//')"
+
+if [[ -z "$_upstream_dns" ]]; then
+  log "No non-loopback nameservers found in /etc/resolv.conf — using 8.8.8.8 8.8.4.4"
+  _upstream_dns="8.8.8.8 8.8.4.4"
+else
+  log "CoreDNS upstream DNS: $_upstream_dns"
+fi
 
 step "Applying CoreDNS"
 
-kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f - <<'COREDNS_EOF'
+kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f - <<COREDNS_EOF
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -722,12 +803,11 @@ data:
            ttl 30
         }
         prometheus :9153
-        forward . /etc/resolv.conf {
+        forward . ${_upstream_dns} {
             expire 8m
             max_fails 0
         }
         cache 30
-        loop
         reload
         loadbalance
     }
@@ -829,19 +909,66 @@ log "CoreDNS manifest applied"
 step "Waiting for CoreDNS to become Ready"
 
 for i in $(seq 1 60); do
-  _dns_ready="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+  _dns_status="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf \
     get pods -n kube-system -l k8s-app=kube-dns \
-    --no-headers 2>/dev/null | awk '{print $2}' | grep -c '1/1' || true)"
+    --no-headers 2>/dev/null || true)"
+
+  _dns_ready="$(echo "$_dns_status" | awk '{print $2}' | grep -c '1/1' || true)"
   if [[ "${_dns_ready:-0}" -ge 1 ]]; then
     log "CoreDNS pod is Ready"
     break
   fi
-  if [[ $i -eq 60 ]]; then
-    log "Warning: CoreDNS pod not Ready after 5m — continuing anyway"
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods -n kube-system || true
+
+  # Fail fast on crash loop — no point waiting 5m
+  if echo "$_dns_status" | grep -q 'CrashLoopBackOff\|Error'; then
+    _dns_pod="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+      get pods -n kube-system -l k8s-app=kube-dns \
+      --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null | head -1)"
+    log "CoreDNS is crash-looping. Pod status:"
+    echo "$_dns_status"
+    if [[ -n "$_dns_pod" ]]; then
+      log "CoreDNS pod logs:"
+      kubectl --kubeconfig=/etc/kubernetes/admin.conf logs -n kube-system "$_dns_pod" --tail=40 2>/dev/null || true
+      log "CoreDNS previous pod logs:"
+      kubectl --kubeconfig=/etc/kubernetes/admin.conf logs -n kube-system "$_dns_pod" --previous --tail=40 2>/dev/null || true
+    fi
+    log "Warning: CoreDNS crash-looping — continuing anyway"
     break
   fi
-  log "Attempt $i/60: CoreDNS not Ready yet..."
+
+  if [[ $i -eq 60 ]]; then
+    log "Warning: CoreDNS pod not Ready after 5m — continuing anyway"
+    echo "$_dns_status"
+    _dns_pod="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+      get pods -n kube-system -l k8s-app=kube-dns \
+      --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null | head -1)"
+    if [[ -n "$_dns_pod" ]]; then
+      log "CoreDNS describe:"
+      kubectl --kubeconfig=/etc/kubernetes/admin.conf describe pod -n kube-system "$_dns_pod" 2>/dev/null | tail -40 || true
+      log "CoreDNS pod logs:"
+      kubectl --kubeconfig=/etc/kubernetes/admin.conf logs -n kube-system "$_dns_pod" --tail=40 2>/dev/null || true
+    fi
+    break
+  fi
+
+  # Every ~20s print the current status and extra context if ContainerCreating
+  _mod="$(expr "$i" % 4 2>/dev/null || echo 1)"
+  if [[ "$_mod" == "0" ]]; then
+    _pod_state="$(echo "$_dns_status" | awk 'NR==1{print $3}' | head -1)"
+    log "Attempt $i/60: ${_pod_state:-no pod yet}"
+    if [[ "$_pod_state" == "ContainerCreating" ]]; then
+      _dns_pod="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+        get pods -n kube-system -l k8s-app=kube-dns \
+        --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null | head -1)"
+      if [[ -n "$_dns_pod" ]]; then
+        log "  describe events:"
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf describe pod -n kube-system "$_dns_pod" 2>/dev/null \
+          | grep -A5 'Events:' | tail -10 || true
+      fi
+      log "  recent kubelet log:"
+      tail -5 /tmp/kubelet.log 2>/dev/null | sed 's/^/    /' || true
+    fi
+  fi
   sleep 5
 done
 

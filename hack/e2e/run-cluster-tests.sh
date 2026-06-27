@@ -34,9 +34,8 @@ set -euo pipefail
 [[ -f "${HOME}/.cargo/env" ]] && source "${HOME}/.cargo/env"
 
 KUBEAIR_REPO_PATH="${KUBEAIR_REPO_PATH:-/opt/kubeair}"
-# Prefer the user-readable kubeconfig; fall back to k3s then kubeadm paths.
+# Prefer the user-readable kubeconfig; fall back to kubeadm path.
 KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
-[[ -f "$KUBECONFIG" ]] || KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
 [[ -f "$KUBECONFIG" ]] || KUBECONFIG="/etc/kubernetes/admin.conf"
 CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
 RUN_UNIT_TESTS="${RUN_UNIT_TESTS:-1}"
