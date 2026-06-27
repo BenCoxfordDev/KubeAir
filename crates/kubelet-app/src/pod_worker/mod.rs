@@ -4990,14 +4990,31 @@ async fn spawn_readiness_probe(
     let mut state = ProbeState::default();
     loop {
         match runtime.container_status(&cid).await {
-            Ok(Some(s)) if s.state == RuntimeContainerState::Running => {}
-            _ => {
+            Ok(Some(s)) if s.state == RuntimeContainerState::Running => {
+                // Container is running — proceed to probe below.
+            }
+            Ok(Some(s)) if s.state == RuntimeContainerState::Exited => {
+                // Container definitively exited — stop probing.
                 readiness_map.insert(cid.0.clone(), false);
                 return;
             }
+            Ok(None) => {
+                // Container no longer exists — stop probing.
+                readiness_map.remove(&cid.0);
+                return;
+            }
+            Ok(Some(_)) | Err(_) => {
+                // Transient unknown/error state — mark not-ready but keep the
+                // probe loop alive. The container may return to Running shortly
+                // (e.g. brief CRI hiccup or containerd restart).
+                readiness_map.insert(cid.0.clone(), false);
+                state = ProbeState::default();
+                tokio::time::sleep(Duration::from_secs(probe.period_seconds.max(1) as u64)).await;
+                continue;
+            }
         }
 
-        let timeout = Duration::from_secs(probe.timeout_seconds as u64);
+        let timeout = Duration::from_secs(probe.timeout_seconds.max(1) as u64);
         let result = run_probe(&probe.handler, runtime.clone(), &cid, &pod_ip, timeout).await;
 
         match evaluate_probe_result(&result, &mut state, &probe, ProbeType::Readiness) {
@@ -5012,7 +5029,7 @@ async fn spawn_readiness_probe(
             ProbeDecision::Pending => {}
         }
 
-        tokio::time::sleep(Duration::from_secs(probe.period_seconds as u64)).await;
+        tokio::time::sleep(Duration::from_secs(probe.period_seconds.max(1) as u64)).await;
     }
 }
 
@@ -7730,6 +7747,206 @@ mod tests {
             env.get("HOSTNAME").map(String::as_str),
             Some("custom-host"),
             "HOSTNAME must equal spec.hostname when set"
+        );
+    }
+
+    // ── spawn_readiness_probe tests ───────────────────────────────────────────
+
+    /// Returns (worker, pod_manager, rx, rt, _dir) — the runtime is exposed so
+    /// tests can inspect or mutate container state after sync_pod.
+    async fn make_worker_with_rt() -> (
+        PodWorker,
+        Arc<PodManager>,
+        mpsc::Receiver<kubelet_core::pod::PodUpdate>,
+        Arc<MockRuntime>,
+        tempfile::TempDir,
+    ) {
+        let (tx, rx) = mpsc::channel(100);
+        let pm = Arc::new(PodManager::new(tx));
+        let rt = Arc::new(MockRuntime::new());
+        let dir = tempfile::TempDir::new().unwrap();
+        let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
+        let cg = Arc::new(CgroupManager::new("/sys/fs/cgroup", true));
+        let vm = Arc::new(LocalVolumeManager::new(dir.path()));
+        let worker = PodWorker::new(
+            pm.clone(),
+            rt.clone(),
+            rt.clone(),
+            vm,
+            cm,
+            cg,
+            Arc::new(HashMap::new()),
+            "cgroupfs",
+            dir.path(),
+            "/var/log/pods",
+            "registry.k8s.io/pause:3.9",
+            None,
+            "node1",
+            Arc::new(InMemoryNodeReporter::new()),
+            NodeDnsConfig::default(),
+            Arc::new(DeviceManager::new("/tmp")),
+        );
+        (worker, pm, rx, rt, dir)
+    }
+
+    /// A running container becomes ready after the probe succeeds.
+    ///
+    /// Uses sync_pod to create and start the container via the worker, then
+    /// drives spawn_readiness_probe directly with an exec probe (MockRuntime
+    /// always returns exit_code=0 for exec_sync, so it always succeeds).
+    #[tokio::test]
+    async fn test_readiness_probe_marks_ready_when_running() {
+        let (worker, pm, _rx, rt, _dir) = make_worker_with_rt().await;
+        let pod = make_pod("uid-rp-1", "pod-rp-1");
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        assert_eq!(
+            worker.sync_pod(&pod, &mut state).await,
+            PodSyncResult::Synced
+        );
+
+        // Grab the container ID that sync_pod created.
+        let cid_str = state.container_ids["nginx"].clone();
+        let cid = kubelet_core::container::ContainerID::new(cid_str.clone());
+
+        let map: Arc<DashMap<String, bool>> = Arc::new(DashMap::new());
+        let probe = Probe {
+            handler: kubelet_core::pod::ProbeHandler::Exec {
+                command: vec!["true".to_string()],
+            },
+            initial_delay_seconds: 0,
+            period_seconds: 1,
+            timeout_seconds: 1,
+            success_threshold: 1,
+            failure_threshold: 3,
+        };
+
+        let map_clone = map.clone();
+        let rt_arc: Arc<dyn ContainerRuntime> = rt.clone();
+        let handle = tokio::spawn(spawn_readiness_probe(
+            rt_arc,
+            cid.clone(),
+            probe,
+            "127.0.0.1".to_string(),
+            map_clone,
+        ));
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        handle.abort();
+
+        assert_eq!(
+            map.get(&cid_str).map(|v| *v),
+            Some(true),
+            "container should be ready after successful exec probe"
+        );
+    }
+
+    /// A container that exits causes the probe task to stop and mark not-ready.
+    #[tokio::test]
+    async fn test_readiness_probe_stops_on_container_exit() {
+        let (worker, pm, _rx, rt, _dir) = make_worker_with_rt().await;
+        let pod = make_pod("uid-rp-2", "pod-rp-2");
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        assert_eq!(
+            worker.sync_pod(&pod, &mut state).await,
+            PodSyncResult::Synced
+        );
+
+        let cid_str = state.container_ids["nginx"].clone();
+        let cid = kubelet_core::container::ContainerID::new(cid_str.clone());
+
+        // Stop the container so state == Exited.
+        rt.stop_container(&cid, 0).await.unwrap();
+
+        let map: Arc<DashMap<String, bool>> = Arc::new(DashMap::new());
+        let probe = Probe {
+            handler: kubelet_core::pod::ProbeHandler::Exec {
+                command: vec!["true".to_string()],
+            },
+            initial_delay_seconds: 0,
+            period_seconds: 1,
+            timeout_seconds: 1,
+            success_threshold: 1,
+            failure_threshold: 1,
+        };
+
+        let map_clone = map.clone();
+        let rt_arc: Arc<dyn ContainerRuntime> = rt.clone();
+        // Task must self-terminate because the container is Exited.
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            spawn_readiness_probe(
+                rt_arc,
+                cid.clone(),
+                probe,
+                "127.0.0.1".to_string(),
+                map_clone,
+            ),
+        )
+        .await
+        .expect("probe task should terminate when container exits");
+
+        assert_eq!(
+            map.get(&cid_str).map(|v| *v),
+            Some(false),
+            "container should be not-ready after exit"
+        );
+    }
+
+    /// A container that disappears from the runtime causes the probe task to stop
+    /// and removes the entry from the readiness map entirely.
+    #[tokio::test]
+    async fn test_readiness_probe_stops_when_container_removed() {
+        let (worker, pm, _rx, rt, _dir) = make_worker_with_rt().await;
+        let pod = make_pod("uid-rp-3", "pod-rp-3");
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        assert_eq!(
+            worker.sync_pod(&pod, &mut state).await,
+            PodSyncResult::Synced
+        );
+
+        let cid_str = state.container_ids["nginx"].clone();
+        let cid = kubelet_core::container::ContainerID::new(cid_str.clone());
+
+        // Remove the container — runtime returns None for container_status.
+        rt.remove_container(&cid).await.unwrap();
+
+        let map: Arc<DashMap<String, bool>> = Arc::new(DashMap::new());
+        map.insert(cid_str.clone(), true); // pretend it was ready before
+        let probe = Probe {
+            handler: kubelet_core::pod::ProbeHandler::Exec {
+                command: vec!["true".to_string()],
+            },
+            initial_delay_seconds: 0,
+            period_seconds: 1,
+            timeout_seconds: 1,
+            success_threshold: 1,
+            failure_threshold: 1,
+        };
+
+        let map_clone = map.clone();
+        let rt_arc: Arc<dyn ContainerRuntime> = rt.clone();
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            spawn_readiness_probe(
+                rt_arc,
+                cid.clone(),
+                probe,
+                "127.0.0.1".to_string(),
+                map_clone,
+            ),
+        )
+        .await
+        .expect("probe task should terminate when container is gone");
+
+        assert!(
+            map.get(&cid_str).is_none(),
+            "entry should be removed from readiness map when container no longer exists"
         );
     }
 }

@@ -93,6 +93,11 @@ if [[ "$RUN_UNIT_TESTS" == "1" ]]; then
 
   run_suite "integration" \
     bazel test //tests/integration:all
+
+  # Shut down the Bazel server to release file descriptors accumulated across
+  # the unit/conformance/smoke/integration invocations. Without this the JVM
+  # hits the OS open-file limit when the first e2e Bazel invocation runs.
+  bazel shutdown || true
 fi
 
 # ── Live cluster e2e tests ────────────────────────────────────────────────────

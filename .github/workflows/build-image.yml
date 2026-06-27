@@ -84,7 +84,7 @@ jobs:
           bazelisk-cache: true
           disk-cache: kubeair-build-image-${{ matrix.arch }}
           repository-cache: true
-          save-cache: ${{ github.ref == 'refs/heads/main' }}
+          cache-save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3

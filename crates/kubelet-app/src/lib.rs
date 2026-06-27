@@ -90,11 +90,17 @@ fn ensure_dev_tls_config(config: &KubeletConfig) -> anyhow::Result<crate::tls_se
     let key_path = pki_dir.join("kubelet-serving.key");
 
     if !(cert_path.exists() && key_path.exists()) {
-        let sans = vec![
+        let internal_ip = detect_internal_ip();
+        let mut sans = vec![
             config.node_name.clone(),
             "localhost".to_string(),
             "127.0.0.1".to_string(),
         ];
+        // Include the node's InternalIP so the e2e framework can reach the
+        // kubelet via its advertised address without certificate errors.
+        if internal_ip != "127.0.0.1" && !sans.contains(&internal_ip) {
+            sans.push(internal_ip);
+        }
         let certified = rcgen::generate_simple_self_signed(sans)
             .map_err(|e| anyhow::anyhow!("generate self-signed serving cert: {}", e))?;
         fs::write(&cert_path, certified.cert.pem())?;

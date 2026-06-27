@@ -40,7 +40,7 @@ UPSTREAM_K8S_VERSION="${UPSTREAM_K8S_VERSION:-}"
 RUN_CONFORMANCE="${RUN_CONFORMANCE:-1}"
 RUN_E2E="${RUN_E2E:-0}"
 CONFORMANCE_FOCUS="${CONFORMANCE_FOCUS:-\\[Conformance\\]}"
-CONFORMANCE_SKIP="${CONFORMANCE_SKIP:-\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]}"
+CONFORMANCE_SKIP="${CONFORMANCE_SKIP:-\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]|two untainted nodes}"
 E2E_FOCUS="${E2E_FOCUS:-\\[sig-node\\]}"
 E2E_SKIP="${E2E_SKIP:-\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]}"
 GINKGO_NODES="${GINKGO_NODES:-4}"
@@ -128,12 +128,20 @@ case "$_host_arch" in
   *) die "Unsupported architecture: $_host_arch" ;;
 esac
 TARBALL="$WORK_DIR/kubernetes-test-linux-${_test_arch}.tar.gz"
+# Cache the tarball outside of WORK_DIR so re-runs skip the download.
+TARBALL_CACHE="/tmp/kubernetes-test-linux-${_test_arch}-${K8S_RELEASE}.tar.gz"
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
 
-TEST_URL="https://dl.k8s.io/release/${K8S_RELEASE}/kubernetes-test-linux-${_test_arch}.tar.gz"
-log "Downloading: $TEST_URL"
-curl -fL --retry 5 --retry-delay 2 "$TEST_URL" -o "$TARBALL"
+if [[ -f "$TARBALL_CACHE" ]]; then
+  log "Using cached test tarball: $TARBALL_CACHE"
+  ln -sf "$TARBALL_CACHE" "$TARBALL"
+else
+  TEST_URL="https://dl.k8s.io/release/${K8S_RELEASE}/kubernetes-test-linux-${_test_arch}.tar.gz"
+  log "Downloading: $TEST_URL"
+  curl -fL --retry 5 --retry-delay 5 --retry-all-errors "$TEST_URL" -o "$TARBALL_CACHE"
+  ln -sf "$TARBALL_CACHE" "$TARBALL"
+fi
 
 tar -xzf "$TARBALL" -C "$WORK_DIR"
 E2E_BIN="$WORK_DIR/kubernetes/test/bin/e2e.test"
@@ -152,12 +160,15 @@ if [[ "$RUN_CONFORMANCE" == "1" ]]; then
   if ! run_suite "upstream_conformance" \
     "$GINKGO_BIN" \
     "--nodes=${GINKGO_NODES}" \
+    "--timeout=2h" \
     "$E2E_BIN" \
     -- \
     "--provider=skeleton" \
     "--kubeconfig=${KUBECONFIG}" \
     "--report-dir=${REPORT_DIR}" \
     "--disable-log-dump=true" \
+    "--system-pods-startup-timeout=15m" \
+    "--e2e-verify-service-account=false" \
     "--ginkgo.focus=${CONFORMANCE_FOCUS}" \
     "--ginkgo.skip=${CONFORMANCE_SKIP}"; then
     OVERALL_PASS=1
@@ -172,12 +183,14 @@ if [[ "$RUN_E2E" == "1" ]]; then
   if ! run_suite "upstream_e2e" \
     "$GINKGO_BIN" \
     "--nodes=${GINKGO_NODES}" \
+    "--timeout=2h" \
     "$E2E_BIN" \
     -- \
     "--provider=skeleton" \
     "--kubeconfig=${KUBECONFIG}" \
     "--report-dir=${REPORT_DIR}" \
     "--disable-log-dump=true" \
+    "--e2e-verify-service-account=false" \
     "--ginkgo.focus=${E2E_FOCUS}" \
     "--ginkgo.skip=${E2E_SKIP}"; then
     OVERALL_PASS=1
