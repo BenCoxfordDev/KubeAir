@@ -495,13 +495,26 @@ pub fn build_node_status_patch(status: &NodeStatus) -> serde_json::Value {
 }
 
 fn build_node_apply_patch(status: &NodeStatus) -> serde_json::Value {
+    // Detect OS and architecture for the standard well-known node labels.
+    // These are required for scheduling system pods (coredns, etc.) which use
+    // nodeAffinity on kubernetes.io/os and kubernetes.io/arch.
+    let os = std::env::consts::OS; // "linux", "windows", "macos"
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        a => a,
+    };
     serde_json::json!({
         "apiVersion": "v1",
         "kind": "Node",
         "metadata": {
             "name": status.name,
             "labels": {
-                "kubernetes.io/hostname": status.name
+                "kubernetes.io/hostname": status.name,
+                "kubernetes.io/os": os,
+                "kubernetes.io/arch": arch,
+                "beta.kubernetes.io/os": os,
+                "beta.kubernetes.io/arch": arch
             }
         },
         "spec": {}

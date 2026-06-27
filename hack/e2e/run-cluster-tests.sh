@@ -34,9 +34,8 @@ set -euo pipefail
 [[ -f "${HOME}/.cargo/env" ]] && source "${HOME}/.cargo/env"
 
 KUBEAIR_REPO_PATH="${KUBEAIR_REPO_PATH:-/opt/kubeair}"
-# Prefer the user-readable kubeconfig; fall back to k3s then kubeadm paths.
+# Prefer the user-readable kubeconfig; fall back to kubeadm path.
 KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
-[[ -f "$KUBECONFIG" ]] || KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
 [[ -f "$KUBECONFIG" ]] || KUBECONFIG="/etc/kubernetes/admin.conf"
 CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
 RUN_UNIT_TESTS="${RUN_UNIT_TESTS:-1}"
@@ -93,6 +92,11 @@ if [[ "$RUN_UNIT_TESTS" == "1" ]]; then
 
   run_suite "integration" \
     bazel test //tests/integration:all
+
+  # Shut down the Bazel server to release file descriptors accumulated across
+  # the unit/conformance/smoke/integration invocations. Without this the JVM
+  # hits the OS open-file limit when the first e2e Bazel invocation runs.
+  bazel shutdown || true
 fi
 
 # ── Live cluster e2e tests ────────────────────────────────────────────────────

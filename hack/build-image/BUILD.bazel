@@ -44,10 +44,15 @@ image_layer(
         "/usr/local/bin/bazelisk": "@bazelisk_linux_amd64//file",
         "/usr/local/bin/cargo-deny": "@cargo_deny_linux_amd64//:cargo-deny",
         "/usr/local/bin/crictl": "@crictl_linux_amd64//:crictl",
+        "/usr/local/bin/etcd": "@etcd_linux_amd64//:etcd",
+        "/usr/local/bin/etcdctl": "@etcd_linux_amd64//:etcdctl",
         "/usr/local/bin/just": "@just_linux_amd64//:just",
-        "/usr/local/bin/k3s": "@k3s_linux_amd64//file",
-        "/usr/local/bin/kubectl": "@kubectl_linux_amd64//file",
+        "/usr/local/bin/kube-apiserver": "@kube_apiserver_linux_amd64//file",
+        "/usr/local/bin/kube-controller-manager": "@kube_controller_manager_linux_amd64//file",
+        "/usr/local/bin/kube-proxy": "@kube_proxy_linux_amd64//file",
+        "/usr/local/bin/kube-scheduler": "@kube_scheduler_linux_amd64//file",
         "/usr/local/bin/kubeadm": "@kubeadm_linux_amd64//file",
+        "/usr/local/bin/kubectl": "@kubectl_linux_amd64//file",
     },
     target_compatible_with = _LINUX_AMD64,
 )
@@ -66,6 +71,21 @@ image_layer(
     target_compatible_with = _LINUX_AMD64,
 )
 
+# update-alternatives is never run by rules_distroless, so the unversioned
+# /usr/sbin/iptables symlink is absent. The CNI bridge plugin requires it.
+image_layer(
+    name = "iptables_symlinks_layer_amd64",
+    symlinks = {
+        "/usr/sbin/iptables": "/usr/sbin/iptables-legacy",
+        "/usr/sbin/iptables-restore": "/usr/sbin/iptables-legacy-restore",
+        "/usr/sbin/iptables-save": "/usr/sbin/iptables-legacy-save",
+        "/usr/sbin/ip6tables": "/usr/sbin/ip6tables-legacy",
+        "/usr/sbin/ip6tables-restore": "/usr/sbin/ip6tables-legacy-restore",
+        "/usr/sbin/ip6tables-save": "/usr/sbin/ip6tables-legacy-save",
+    },
+    target_compatible_with = _LINUX_AMD64,
+)
+
 image_manifest(
     name = "build_image_amd64",
     base = "@debian_trixie_slim",
@@ -73,6 +93,7 @@ image_manifest(
         ":packages_layer_amd64",
         ":cacerts_layer",
         ":gcc_symlinks_layer_amd64",
+        ":iptables_symlinks_layer_amd64",
         ":tools_layer_amd64",
     ],
     target_compatible_with = _LINUX_AMD64,
@@ -92,10 +113,15 @@ image_layer(
         "/usr/local/bin/bazelisk": "@bazelisk_linux_arm64//file",
         "/usr/local/bin/cargo-deny": "@cargo_deny_linux_arm64//:cargo-deny",
         "/usr/local/bin/crictl": "@crictl_linux_arm64//:crictl",
+        "/usr/local/bin/etcd": "@etcd_linux_arm64//:etcd",
+        "/usr/local/bin/etcdctl": "@etcd_linux_arm64//:etcdctl",
         "/usr/local/bin/just": "@just_linux_arm64//:just",
-        "/usr/local/bin/k3s": "@k3s_linux_arm64//file",
-        "/usr/local/bin/kubectl": "@kubectl_linux_arm64//file",
+        "/usr/local/bin/kube-apiserver": "@kube_apiserver_linux_arm64//file",
+        "/usr/local/bin/kube-controller-manager": "@kube_controller_manager_linux_arm64//file",
+        "/usr/local/bin/kube-proxy": "@kube_proxy_linux_arm64//file",
+        "/usr/local/bin/kube-scheduler": "@kube_scheduler_linux_arm64//file",
         "/usr/local/bin/kubeadm": "@kubeadm_linux_arm64//file",
+        "/usr/local/bin/kubectl": "@kubectl_linux_arm64//file",
     },
     target_compatible_with = _LINUX_ARM64,
 )
@@ -114,6 +140,21 @@ image_layer(
     target_compatible_with = _LINUX_ARM64,
 )
 
+# update-alternatives is never run by rules_distroless, so the unversioned
+# /usr/sbin/iptables symlink is absent. The CNI bridge plugin requires it.
+image_layer(
+    name = "iptables_symlinks_layer_arm64",
+    symlinks = {
+        "/usr/sbin/iptables": "/usr/sbin/iptables-legacy",
+        "/usr/sbin/iptables-restore": "/usr/sbin/iptables-legacy-restore",
+        "/usr/sbin/iptables-save": "/usr/sbin/iptables-legacy-save",
+        "/usr/sbin/ip6tables": "/usr/sbin/ip6tables-legacy",
+        "/usr/sbin/ip6tables-restore": "/usr/sbin/ip6tables-legacy-restore",
+        "/usr/sbin/ip6tables-save": "/usr/sbin/ip6tables-legacy-save",
+    },
+    target_compatible_with = _LINUX_ARM64,
+)
+
 image_manifest(
     name = "build_image_arm64",
     base = "@debian_trixie_slim",
@@ -121,6 +162,7 @@ image_manifest(
         ":packages_layer_arm64",
         ":cacerts_layer",
         ":gcc_symlinks_layer_arm64",
+        ":iptables_symlinks_layer_arm64",
         ":tools_layer_arm64",
     ],
     target_compatible_with = _LINUX_ARM64,

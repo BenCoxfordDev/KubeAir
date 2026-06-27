@@ -184,7 +184,7 @@ jobs:
           bazelisk-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && 'false' || 'true' }}
           disk-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && '' || 'kubeair' }}
           repository-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && 'false' || 'true' }}
-          save-cache: ${{ needs.prepare.outputs.rebuild_assets == 'false' }}
+          cache-save: ${{ needs.prepare.outputs.rebuild_assets == 'false' }}
 
       - name: Ensure bazel symlink
         run: ln -sf "$(which bazelisk)" /usr/local/bin/bazel

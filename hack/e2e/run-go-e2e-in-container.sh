@@ -23,7 +23,7 @@
 # Environment:
 #   KUBEAIR_REPO_PATH        Path to the kube-air source tree. Default: /workspace
 #   SKIP_BUILD               "1" to skip bazel build. Default: 0
-#   RESET_EXISTING           "1" to uninstall existing k3s before init. Default: 0
+#   RESET_EXISTING           "1" to wipe existing control-plane state before init. Default: 0
 #   ARTIFACT_DIR             Directory to write test output. Default: /tmp/kubeair-go-e2e-artifacts
 #   UPSTREAM_K8S_VERSION     Kubernetes release for test binaries. Default: detect from cluster.
 #   RUN_CONFORMANCE          "1" to run conformance. Default: 1
@@ -86,13 +86,25 @@ KUBELET_BIN="$KUBEAIR_REPO_PATH/bazel-bin/src/main"
 
 log "kubelet binary: $KUBELET_BIN ($(du -sh "$KUBELET_BIN" | cut -f1))"
 
-# ── Provision k3s cluster ──────────────────────────────────────────────────────
+# ── Provision control-plane cluster ──────────────────────────────────────────
 
-step "Provisioning k3s cluster"
+step "Provisioning Kubernetes control plane"
 
 KUBELET_BIN="$KUBELET_BIN" \
 RESET_EXISTING="$RESET_EXISTING" \
-bash "$KUBEAIR_REPO_PATH/hack/e2e/setup-node-k3s.sh"
+bash "$KUBEAIR_REPO_PATH/hack/e2e/setup-node.sh"
+
+# setup-node.sh exits 0 leaving cluster processes running (reparented to PID 1).
+# It writes /tmp/cluster-pids.txt so we can tear them down after tests.
+teardown_cluster() {
+  if [[ -f /tmp/cluster-pids.txt ]]; then
+    log "Tearing down cluster processes..."
+    while IFS= read -r _pid; do
+      kill -9 "$_pid" 2>/dev/null || true
+    done < /tmp/cluster-pids.txt
+  fi
+}
+trap teardown_cluster EXIT
 
 # ── Monitor kubelet memory ─────────────────────────────────────────────────────
 
@@ -100,11 +112,35 @@ step "Starting kubelet memory monitor"
 bash "$KUBEAIR_REPO_PATH/hack/e2e/memory-monitor.sh" /tmp/kubelet.pid "$ARTIFACT_DIR/kubelet-memory.csv" 2 &
 MONITOR_PID=$!
 
+# ── Collect diagnostics on failure ────────────────────────────────────────────
+
+collect_diagnostics() {
+  log "Collecting cluster diagnostics..."
+  mkdir -p "$ARTIFACT_DIR/cluster-state"
+  local kc=/etc/kubernetes/admin.conf
+  kubectl --kubeconfig "$kc" get nodes -o wide \
+    > "$ARTIFACT_DIR/cluster-state/nodes.txt" 2>&1 || true
+  kubectl --kubeconfig "$kc" get pods --all-namespaces -o wide \
+    > "$ARTIFACT_DIR/cluster-state/pods.txt" 2>&1 || true
+  kubectl --kubeconfig "$kc" get events --all-namespaces \
+    --sort-by=.lastTimestamp \
+    > "$ARTIFACT_DIR/cluster-state/events.txt" 2>&1 || true
+  tail -500 /tmp/kubelet.log \
+    > "$ARTIFACT_DIR/cluster-state/kubelet.log" 2>&1 || true
+  tail -100 /tmp/kube-proxy.log \
+    > "$ARTIFACT_DIR/cluster-state/kube-proxy.log" 2>&1 || true
+  tail -100 /tmp/kube-apiserver.log \
+    > "$ARTIFACT_DIR/cluster-state/kube-apiserver.log" 2>&1 || true
+  tail -100 /tmp/etcd.log \
+    > "$ARTIFACT_DIR/cluster-state/etcd.log" 2>&1 || true
+}
+trap collect_diagnostics ERR
+
 # ── Run upstream Go e2e ────────────────────────────────────────────────────────
 
 step "Running upstream Kubernetes Go e2e/conformance"
 
-KUBECONFIG=/etc/rancher/k3s/k3s.yaml \
+KUBECONFIG=/etc/kubernetes/admin.conf \
 ARTIFACT_DIR="$ARTIFACT_DIR" \
 bash "$KUBEAIR_REPO_PATH/hack/e2e/run-upstream-go-e2e.sh"
 

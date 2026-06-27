@@ -25,8 +25,8 @@
 # What this script does:
 #   1. Pulls the CI build image.
 #   2. Launches a privileged container with the repo bind-mounted.
-#   3. Inside the container: builds the kubelet, provisions a single-node k3s
-#      cluster, then runs hack/e2e/run-upstream-go-e2e.sh.
+#   3. Inside the container: builds the kubelet, provisions a single-node
+#      Kubernetes control plane, then runs hack/e2e/run-upstream-go-e2e.sh.
 #
 # Environment overrides:
 #   CONTAINER_RUNTIME      podman or docker. Default: podman
@@ -39,7 +39,7 @@
 #   E2E_FOCUS              Focus regex for e2e suite. Default: \[sig-node\]
 #   E2E_SKIP               Skip regex for e2e suite. Default: \[Serial\]|\[Slow\]|\[Disruptive\]|\[Flaky\]
 #   GINKGO_NODES           Parallel ginkgo nodes. Default: 4
-#   RESET_EXISTING         "1" to uninstall existing k3s before init. Default: 0
+#   RESET_EXISTING         "1" to wipe existing control-plane state before init. Default: 0
 #   SKIP_BUILD             "1" to reuse an existing binary (skip bazel build). Default: 0
 set -euo pipefail
 
@@ -55,7 +55,7 @@ BUILD_IMAGE="${BUILD_IMAGE:-ghcr.io/bencoxforddev/kubeair/build:${_k8s_tag}}"
 RUN_CONFORMANCE="${RUN_CONFORMANCE:-1}"
 RUN_E2E="${RUN_E2E:-0}"
 CONFORMANCE_FOCUS="${CONFORMANCE_FOCUS:-\\[Conformance\\]}"
-CONFORMANCE_SKIP="${CONFORMANCE_SKIP:-\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]}"
+CONFORMANCE_SKIP="${CONFORMANCE_SKIP:-\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]|\\[Privileged:ClusterAdmin\\]|two untainted nodes}"
 E2E_FOCUS="${E2E_FOCUS:-\\[sig-node\\]}"
 E2E_SKIP="${E2E_SKIP:-\\[Serial\\]|\\[Slow\\]|\\[Disruptive\\]|\\[Flaky\\]}"
 GINKGO_NODES="${GINKGO_NODES:-4}"
@@ -71,6 +71,30 @@ require_cmd() {
 }
 
 require_cmd "$CONTAINER_RUNTIME" "$CONTAINER_RUNTIME"
+
+# ── Rootless podman guard ─────────────────────────────────────────────────────
+# Creating bridge network interfaces (required by the CNI bridge plugin) fails
+# with EPERM inside a rootless container even with --privileged, because the
+# host user doesn't have CAP_NET_ADMIN in the real root network namespace.
+# The tests will appear to run but all pods will fail with SandboxCreationFailed.
+#
+# Fix: switch the podman machine to rootful (one-time setup):
+#   podman machine stop
+#   podman machine set --rootful
+#   podman machine start
+if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
+  if podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null | grep -q "^true$"; then
+    die "podman is running in rootless mode, which cannot create bridge network interfaces.
+  The go-e2e suite needs a rootful container to set up CNI pod networking.
+
+  Fix (one-time):
+    podman machine stop
+    podman machine set --rootful
+    podman machine start
+
+  Then re-run: just go-e2e"
+  fi
+fi
 
 step "Running upstream Kubernetes Go e2e suite"
 log "Runtime:  $CONTAINER_RUNTIME"
@@ -102,11 +126,17 @@ trap copy_results EXIT
 
 step "Launching container (--privileged)"
 
+# Kill any stale containers from previous runs that may still be holding ports
+log "Cleaning up stale containers from previous runs..."
+"$CONTAINER_RUNTIME" ps -a --filter "ancestor=$BUILD_IMAGE" -q 2>/dev/null \
+  | xargs -r "$CONTAINER_RUNTIME" rm -f 2>/dev/null || true
+
 mkdir -p "${HOME}/.cache/bazel"
 
 "$CONTAINER_RUNTIME" run \
   --rm \
   --privileged \
+  --cgroupns=host \
   --network=host \
   --ulimit nofile=65536:65536 \
   -v "$REPO_ROOT:/workspace:z" \

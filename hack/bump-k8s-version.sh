@@ -137,14 +137,25 @@ printf '[bump]\n'
 printf '[bump] hack/deps/k8s-versions.bzl sha256 hashes are version-specific and were NOT updated.\n'
 printf '[bump] Fetch and replace each one in hack/deps/k8s-versions.bzl:\n'
 printf '[bump]\n'
-printf '[bump]   kubectl amd64:  curl -fsSL https://dl.k8s.io/release/%s/bin/linux/amd64/kubectl | sha256sum\n' "$NEW_VERSION"
-printf '[bump]   kubectl arm64:  curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kubectl | sha256sum\n' "$NEW_VERSION"
-printf '[bump]   kubeadm amd64:  curl -fsSL https://dl.k8s.io/release/%s/bin/linux/amd64/kubeadm | sha256sum\n' "$NEW_VERSION"
-printf '[bump]   kubeadm arm64:  curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kubeadm | sha256sum\n' "$NEW_VERSION"
-printf '[bump]   crictl amd64:  curl -fsSL https://github.com/kubernetes-sigs/cri-tools/releases/download/%s/crictl-%s-linux-amd64.tar.gz | sha256sum\n' "$NEW_VERSION" "$NEW_VERSION"
-printf '[bump]   crictl arm64:  curl -fsSL https://github.com/kubernetes-sigs/cri-tools/releases/download/%s/crictl-%s-linux-arm64.tar.gz | sha256sum\n' "$NEW_VERSION" "$NEW_VERSION"
-printf '[bump]   k3s amd64:  curl -fsSL https://github.com/k3s-io/k3s/releases/download/%s%%2Bk3s1/k3s | sha256sum\n' "$NEW_VERSION"
-printf '[bump]   k3s arm64:  curl -fsSL https://github.com/k3s-io/k3s/releases/download/%s%%2Bk3s1/k3s-arm64 | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kubectl amd64:               curl -fsSL https://dl.k8s.io/release/%s/bin/linux/amd64/kubectl | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kubectl arm64:               curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kubectl | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kubeadm amd64:               curl -fsSL https://dl.k8s.io/release/%s/bin/linux/amd64/kubeadm | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kubeadm arm64:               curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kubeadm | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kube-apiserver amd64:        curl -fsSL https://dl.k8s.io/release/%s/bin/linux/amd64/kube-apiserver | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kube-apiserver arm64:        curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kube-apiserver | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kube-controller-manager amd64: curl -fsSL https://dl.k8s.io/release/%s/bin/linux/amd64/kube-controller-manager | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kube-controller-manager arm64: curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kube-controller-manager | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kube-scheduler amd64:        curl -fsSL https://dl.k8s.io/release/%s/bin/linux/amd64/kube-scheduler | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kube-scheduler arm64:        curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kube-scheduler | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kube-proxy amd64:            curl -fsSL https://dl.k8s.io/release/%s/bin/linux/amd64/kube-proxy | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   kube-proxy arm64:            curl -fsSL https://dl.k8s.io/release/%s/bin/linux/arm64/kube-proxy | sha256sum\n' "$NEW_VERSION"
+printf '[bump]   crictl amd64:               curl -fsSL https://github.com/kubernetes-sigs/cri-tools/releases/download/%s/crictl-%s-linux-amd64.tar.gz | sha256sum\n' "$NEW_VERSION" "$NEW_VERSION"
+printf '[bump]   crictl arm64:               curl -fsSL https://github.com/kubernetes-sigs/cri-tools/releases/download/%s/crictl-%s-linux-arm64.tar.gz | sha256sum\n' "$NEW_VERSION" "$NEW_VERSION"
+printf '[bump]\n'
+printf '[bump] NOTE: etcd is versioned independently of Kubernetes.\n'
+printf '[bump]   Check kubeadm constants.go (DefaultEtcdVersion) for the recommended etcd version:\n'
+printf '[bump]   https://github.com/kubernetes/kubernetes/blob/%s/cmd/kubeadm/app/constants/constants.go\n' "$NEW_VERSION"
+printf '[bump]   Then update etcd URLs and hashes in hack/deps/k8s-versions.bzl manually.\n'
 printf '[bump]\n'
 printf '[bump] After updating hack/deps/k8s-versions.bzl, regenerate the Bazel lock file:\n'
 printf '[bump]   bazel mod tidy\n'
