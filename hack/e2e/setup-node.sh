@@ -81,18 +81,48 @@ export PATH="/usr/sbin:$PATH"
 
 NODE_NAME="$(hostname | tr '[:upper:]' '[:lower:]')"
 
+# ── Kill any leftover control-plane processes ─────────────────────────────────
+# Always kill stale processes from previous runs so ports (6443, 2379, 2380)
+# are free before we start new ones. Use multiple passes to catch stragglers.
+for _pass in 1 2; do
+  for _proc in kube-apiserver kube-controller-manager kube-scheduler kube-proxy etcd; do
+    pkill -9 -f "$_proc" 2>/dev/null || true
+  done
+  [[ $_pass -lt 2 ]] && sleep 2
+done
+# Wait for TIME_WAIT sockets to release the ports.
+sleep 3
+
 # ── Reset ──────────────────────────────────────────────────────────────────────
 
 if [[ "$RESET_EXISTING" == "1" ]]; then
-  log "Resetting existing control-plane state..."
-  pkill -f 'kube-apiserver'         2>/dev/null || true
-  pkill -f 'kube-controller-manager' 2>/dev/null || true
-  pkill -f 'kube-scheduler'         2>/dev/null || true
-  pkill -f 'kube-proxy'             2>/dev/null || true
-  pkill -f 'etcd'                   2>/dev/null || true
-  sleep 2
+  log "Wiping existing control-plane state..."
   rm -rf /var/lib/etcd /etc/kubernetes /var/lib/kubelet /run/kubernetes
 fi
+
+# ── Cleanup on exit ────────────────────────────────────────────────────────────
+# Ensure all spawned processes are terminated when script exits on error/signal.
+# On SUCCESS (exit 0), we intentionally leave the cluster running so the caller
+# can run tests against it.  The caller is responsible for cleanup.
+_pids=()
+_setup_failed=0
+
+cleanup() {
+  local _exit_code=$?
+  # Only kill cluster processes if we failed; on success they must stay alive.
+  if [[ $_setup_failed -eq 1 ]] && [[ ${#_pids[@]} -gt 0 ]]; then
+    log "Cleaning up spawned processes (setup failed)..."
+    for _pid in "${_pids[@]}"; do
+      if kill -0 "$_pid" 2>/dev/null; then
+        log "Killing PID $_pid"
+        kill -9 "$_pid" 2>/dev/null || true
+      fi
+    done
+  fi
+  return $_exit_code
+}
+trap '_setup_failed=1; cleanup' ERR
+trap 'cleanup' SIGTERM SIGINT
 
 # ── Start containerd ───────────────────────────────────────────────────────────
 
@@ -134,6 +164,7 @@ fi
 
 nohup containerd >/tmp/containerd.log 2>&1 &
 CONTAINERD_PID=$!
+_pids+=("$CONTAINERD_PID")
 log "containerd started (PID $CONTAINERD_PID)"
 
 for i in $(seq 1 30); do
@@ -242,6 +273,10 @@ _K8S_VER="$(kube-apiserver --version 2>/dev/null | awk '{print $2}' || echo 'v1.
 
 mkdir -p /etc/kubernetes/pki /var/lib/kubelet/pki /var/log/pods
 
+# Always regenerate certs — node IP may have changed between runs.
+rm -rf /etc/kubernetes/pki
+mkdir -p /etc/kubernetes/pki
+
 cat > /tmp/kubeadm-config.yaml <<KUBEADM_EOF
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
@@ -283,7 +318,8 @@ log "Kubeconfigs generated in /etc/kubernetes/"
 sed -i "s|https://${_NODE_IP}:6443|https://127.0.0.1:6443|g" \
   /etc/kubernetes/admin.conf \
   /etc/kubernetes/controller-manager.conf \
-  /etc/kubernetes/scheduler.conf 2>/dev/null || true
+  /etc/kubernetes/scheduler.conf \
+  /etc/kubernetes/kubelet.conf 2>/dev/null || true
 
 # Standard location for kubectl
 mkdir -p "$HOME/.kube"
@@ -334,7 +370,9 @@ nohup etcd \
   --peer-trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt \
   --peer-client-cert-auth=true \
   >/tmp/etcd.log 2>&1 &
-log "etcd started (PID $!)"
+ETCD_PID=$!
+_pids+=("$ETCD_PID")
+log "etcd started (PID $ETCD_PID)"
 
 # Wait for etcd to become healthy
 for i in $(seq 1 30); do
@@ -358,48 +396,123 @@ done
 
 step "Starting kube-apiserver"
 
-nohup kube-apiserver \
-  --etcd-servers=https://127.0.0.1:2379 \
-  --etcd-cafile=/etc/kubernetes/pki/etcd/ca.crt \
-  --etcd-certfile=/etc/kubernetes/pki/apiserver-etcd-client.crt \
-  --etcd-keyfile=/etc/kubernetes/pki/apiserver-etcd-client.key \
-  --service-cluster-ip-range=10.96.0.0/12 \
-  --bind-address=0.0.0.0 \
-  --advertise-address=127.0.0.1 \
-  --secure-port=6443 \
-  --tls-cert-file=/etc/kubernetes/pki/apiserver.crt \
-  --tls-private-key-file=/etc/kubernetes/pki/apiserver.key \
-  --client-ca-file=/etc/kubernetes/pki/ca.crt \
-  --service-account-key-file=/etc/kubernetes/pki/sa.pub \
-  --service-account-signing-key-file=/etc/kubernetes/pki/sa.key \
-  --service-account-issuer=https://kubernetes.default.svc.cluster.local \
-  --kubelet-client-certificate=/etc/kubernetes/pki/apiserver-kubelet-client.crt \
-  --kubelet-client-key=/etc/kubernetes/pki/apiserver-kubelet-client.key \
-  --authorization-mode=Node,RBAC \
-  --requestheader-client-ca-file=/etc/kubernetes/pki/front-proxy-ca.crt \
-  --requestheader-allowed-names=front-proxy-client \
-  --requestheader-extra-headers-prefix=X-Remote-Extra- \
-  --requestheader-group-headers=X-Remote-Group \
-  --requestheader-username-headers=X-Remote-User \
-  --proxy-client-cert-file=/etc/kubernetes/pki/front-proxy-client.crt \
-  --proxy-client-key-file=/etc/kubernetes/pki/front-proxy-client.key \
-  --enable-aggregator-routing=true \
-  >/tmp/kube-apiserver.log 2>&1 &
-log "kube-apiserver started (PID $!)"
+# Kill any lingering kube-apiserver processes and give kernel time to fully release port 6443.
+# Even after pkill, the kernel may hold the port in TIME_WAIT state for up to 60s.
+pkill -9 -f 'kube-apiserver' 2>/dev/null || true
+sleep 5
+
+# Temporarily disable pipefail to handle retry logic  
+set +o pipefail
+
+# Start kube-apiserver with retry logic — port may still be in TIME_WAIT initially.
+# Maximum 6 attempts with 30-40s delays to ensure port is fully released.
+_attempt=0
+_success=false
+while [[ $_attempt -lt 6 ]] && [[ "$_success" == "false" ]]; do
+  _attempt=$((${_attempt} + 1))
+  log "Attempt $_attempt/6: starting kube-apiserver..."
+  
+  nohup kube-apiserver \
+    --etcd-servers=https://127.0.0.1:2379 \
+    --etcd-cafile=/etc/kubernetes/pki/etcd/ca.crt \
+    --etcd-certfile=/etc/kubernetes/pki/apiserver-etcd-client.crt \
+    --etcd-keyfile=/etc/kubernetes/pki/apiserver-etcd-client.key \
+    --service-cluster-ip-range=10.96.0.0/12 \
+    --bind-address=0.0.0.0 \
+    --advertise-address="${_NODE_IP}" \
+    --secure-port=6443 \
+    --tls-cert-file=/etc/kubernetes/pki/apiserver.crt \
+    --tls-private-key-file=/etc/kubernetes/pki/apiserver.key \
+    --client-ca-file=/etc/kubernetes/pki/ca.crt \
+    --service-account-key-file=/etc/kubernetes/pki/sa.pub \
+    --service-account-signing-key-file=/etc/kubernetes/pki/sa.key \
+    --service-account-issuer=https://kubernetes.default.svc.cluster.local \
+    --kubelet-client-certificate=/etc/kubernetes/pki/apiserver-kubelet-client.crt \
+    --kubelet-client-key=/etc/kubernetes/pki/apiserver-kubelet-client.key \
+    --authorization-mode=Node,RBAC \
+    --requestheader-client-ca-file=/etc/kubernetes/pki/front-proxy-ca.crt \
+    --requestheader-allowed-names=front-proxy-client \
+    --requestheader-extra-headers-prefix=X-Remote-Extra- \
+    --requestheader-group-headers=X-Remote-Group \
+    --requestheader-username-headers=X-Remote-User \
+    --proxy-client-cert-file=/etc/kubernetes/pki/front-proxy-client.crt \
+    --proxy-client-key-file=/etc/kubernetes/pki/front-proxy-client.key \
+    --enable-aggregator-routing=true \
+    >/tmp/kube-apiserver.log 2>&1 &
+  
+  _pid=$!
+  _pids+=("$_pid")
+  log "kube-apiserver spawned (PID $_pid)"
+  
+  sleep 3
+  
+  if kill -0 $_pid 2>/dev/null; then
+    log "kube-apiserver is running"
+    _success=true
+  else
+    if grep -q "address already in use" /tmp/kube-apiserver.log 2>/dev/null; then
+      if [[ $_attempt -lt 6 ]]; then
+        log "Port 6443 in TIME_WAIT (attempt $_attempt/6), waiting 30s before retry..."
+        sleep 30
+      fi
+    else
+      log "kube-apiserver exited unexpectedly"
+      tail -20 /tmp/kube-apiserver.log || true
+      set -o pipefail
+      die "kube-apiserver failed (check logs above)"
+    fi
+  fi
+done
+
+set -o pipefail
+
+if [[ "$_success" != "true" ]]; then
+  echo "--- kube-apiserver logs (last 30 lines) ---"
+  tail -30 /tmp/kube-apiserver.log || true
+  die "kube-apiserver never started after 6 attempts"
+fi
+
+log "kube-apiserver is ready"
 
 # Wait for the API server to respond
-for i in $(seq 1 60); do
-  if kubectl --kubeconfig=/etc/kubernetes/admin.conf cluster-info >/dev/null 2>&1; then
+for i in $(seq 1 120); do
+  if curl -sf \
+       --cacert /etc/kubernetes/pki/ca.crt \
+       https://127.0.0.1:6443/readyz >/dev/null 2>&1; then
     log "kube-apiserver is ready"
     break
   fi
-  if [[ $i -eq 60 ]]; then
+  if [[ $i -eq 120 ]]; then
     echo "--- kube-apiserver logs ---"
     tail -30 /tmp/kube-apiserver.log || true
-    die "kube-apiserver never became ready after 60s"
+    echo "--- kubeconfig server ---"
+    grep "server:" /etc/kubernetes/admin.conf || true
+    echo "--- curl error ---"
+    curl -v --cacert /etc/kubernetes/pki/ca.crt https://127.0.0.1:6443/readyz 2>&1 | tail -10 || true
+    die "kube-apiserver never became ready after 120s"
   fi
   sleep 1
 done
+
+# kubeadm 1.29+ creates admin.conf with group "kubernetes-admins" (not system:masters).
+# The kubeadm:cluster-admins ClusterRoleBinding is only created by "kubeadm init",
+# not by the individual phases we use. Create it now using super-admin.conf (system:masters).
+kubectl --kubeconfig=/etc/kubernetes/super-admin.conf \
+  create clusterrolebinding kubeadm:cluster-admins \
+  --clusterrole=cluster-admin \
+  --group=kubeadm:cluster-admins \
+  2>/dev/null || true
+log "kubeadm:cluster-admins ClusterRoleBinding ensured"
+
+# Allow the e2e test framework (running as kubernetes-admin) to query the kubelet
+# API directly via the apiserver proxy (needed for log/exec/portforward tests and
+# for diagnostic collection: "kubectl get --raw /api/v1/nodes/<name>/proxy/pods").
+kubectl --kubeconfig=/etc/kubernetes/super-admin.conf \
+  create clusterrolebinding e2e:kubelet-api-admin \
+  --clusterrole=system:kubelet-api-admin \
+  --group=kubeadm:cluster-admins \
+  2>/dev/null || true
+log "e2e:kubelet-api-admin ClusterRoleBinding ensured"
 
 # ── Start kube-controller-manager ────────────────────────────────────────────
 
@@ -415,8 +528,31 @@ nohup kube-controller-manager \
   --root-ca-file=/etc/kubernetes/pki/ca.crt \
   --service-account-private-key-file=/etc/kubernetes/pki/sa.key \
   --use-service-account-credentials=true \
+  --controllers='*,bootstrapsigner,tokencleaner' \
   >/tmp/kube-controller-manager.log 2>&1 &
-log "kube-controller-manager started (PID $!)"
+CTRL_MGR_PID=$!
+_pids+=("$CTRL_MGR_PID")
+log "kube-controller-manager started (PID $CTRL_MGR_PID)"
+
+# Wait for controller-manager to be healthy before proceeding.
+# This ensures the SA token controller and kube-root-ca.crt injector are running
+# before any namespaces are created, preventing "wait for service account" timeouts.
+for i in $(seq 1 30); do
+  if kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+       get --raw /healthz >/dev/null 2>&1 && \
+     kill -0 "$CTRL_MGR_PID" 2>/dev/null; then
+    # Process is running; give it a moment to initialize its controllers
+    sleep 3
+    log "kube-controller-manager is running"
+    break
+  fi
+  if [[ $i -eq 30 ]]; then
+    log "Warning: controller-manager not running after 60s — continuing anyway"
+    tail -10 /tmp/kube-controller-manager.log || true
+    break
+  fi
+  sleep 2
+done
 
 # ── Start kube-scheduler ──────────────────────────────────────────────────────
 
@@ -425,7 +561,9 @@ step "Starting kube-scheduler"
 nohup kube-scheduler \
   --kubeconfig=/etc/kubernetes/scheduler.conf \
   >/tmp/kube-scheduler.log 2>&1 &
-log "kube-scheduler started (PID $!)"
+SCHED_PID=$!
+_pids+=("$SCHED_PID")
+log "kube-scheduler started (PID $SCHED_PID)"
 
 # ── Start kube-air kubelet ────────────────────────────────────────────────────
 
@@ -446,7 +584,7 @@ authorization:
 KUBELET_CFG
 
 nohup "$KUBELET_BIN" \
-  --kubeconfig=/etc/kubernetes/admin.conf \
+  --kubeconfig=/etc/kubernetes/kubelet.conf \
   --container-runtime-endpoint=unix:///run/containerd/containerd.sock \
   --node-name="$NODE_NAME" \
   --cluster-dns=10.96.0.10 \
@@ -458,6 +596,7 @@ nohup "$KUBELET_BIN" \
   >/tmp/kubelet.log 2>&1 &
 
 KUBELET_PID=$!
+_pids+=("$KUBELET_PID")
 echo "$KUBELET_PID" > /tmp/kubelet.pid
 log "kube-air kubelet started (PID $KUBELET_PID)"
 
@@ -470,7 +609,9 @@ nohup kube-proxy \
   --proxy-mode=iptables \
   --cluster-cidr=10.88.0.0/16 \
   >/tmp/kube-proxy.log 2>&1 &
-log "kube-proxy started (PID $!)"
+PROXY_PID=$!
+_pids+=("$PROXY_PID")
+log "kube-proxy started (PID $PROXY_PID)"
 
 # ── Wait for node Ready ───────────────────────────────────────────────────────
 
@@ -491,8 +632,31 @@ for i in $(seq 1 60); do
     kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes || true
     die "Node $NODE_NAME never became Ready after 60 attempts"
   fi
-  log "Attempt $i/60: node not Ready yet..."
+  # Every 5 attempts, show kubelet status for diagnostics
+  if (( i % 5 == 0 )); then
+    log "Attempt $i/60: node not Ready - kubelet status:"
+    tail -5 /tmp/kubelet.log 2>/dev/null | sed 's/^/  /' || true
+  else
+    log "Attempt $i/60: node not Ready yet..."
+  fi
   sleep 5
+done
+
+# Wait for SA token controller to inject kube-root-ca.crt into kube-system.
+# Tests that create namespaces check for this before proceeding; if we don't
+# wait here they race and get "timed out waiting for the condition" failures.
+step "Waiting for kube-root-ca.crt injection"
+for i in $(seq 1 30); do
+  if kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+       get configmap kube-root-ca.crt -n kube-system >/dev/null 2>&1; then
+    log "kube-root-ca.crt is available"
+    break
+  fi
+  if [[ $i -eq 30 ]]; then
+    log "Warning: kube-root-ca.crt not injected after 60s — continuing anyway"
+    break
+  fi
+  sleep 2
 done
 
 # ── Apply CoreDNS ─────────────────────────────────────────────────────────────
@@ -684,3 +848,7 @@ done
 step "Cluster ready"
 kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide
 kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods --all-namespaces
+
+# Write all tracked PIDs to a file so the caller can tear down the cluster.
+printf '%s\n' "${_pids[@]}" > /tmp/cluster-pids.txt
+log "Cluster PIDs written to /tmp/cluster-pids.txt"

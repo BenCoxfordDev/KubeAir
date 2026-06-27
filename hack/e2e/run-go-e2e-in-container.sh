@@ -94,6 +94,18 @@ KUBELET_BIN="$KUBELET_BIN" \
 RESET_EXISTING="$RESET_EXISTING" \
 bash "$KUBEAIR_REPO_PATH/hack/e2e/setup-node.sh"
 
+# setup-node.sh exits 0 leaving cluster processes running (reparented to PID 1).
+# It writes /tmp/cluster-pids.txt so we can tear them down after tests.
+teardown_cluster() {
+  if [[ -f /tmp/cluster-pids.txt ]]; then
+    log "Tearing down cluster processes..."
+    while IFS= read -r _pid; do
+      kill -9 "$_pid" 2>/dev/null || true
+    done < /tmp/cluster-pids.txt
+  fi
+}
+trap teardown_cluster EXIT
+
 # ── Monitor kubelet memory ─────────────────────────────────────────────────────
 
 step "Starting kubelet memory monitor"

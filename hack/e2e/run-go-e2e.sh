@@ -126,6 +126,11 @@ trap copy_results EXIT
 
 step "Launching container (--privileged)"
 
+# Kill any stale containers from previous runs that may still be holding ports
+log "Cleaning up stale containers from previous runs..."
+"$CONTAINER_RUNTIME" ps -a --filter "ancestor=$BUILD_IMAGE" -q 2>/dev/null \
+  | xargs -r "$CONTAINER_RUNTIME" rm -f 2>/dev/null || true
+
 mkdir -p "${HOME}/.cache/bazel"
 
 "$CONTAINER_RUNTIME" run \
