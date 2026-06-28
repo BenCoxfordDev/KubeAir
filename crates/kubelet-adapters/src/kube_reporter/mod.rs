@@ -1343,7 +1343,9 @@ fn k8s_lifecycle_handler_to_spec(
             host: tcp.host.clone(),
         })
     } else {
-        None
+        h.sleep.as_ref().map(|sleep| LifecycleHandler::Sleep {
+            seconds: sleep.seconds.max(0) as u64,
+        })
     }
 }
 

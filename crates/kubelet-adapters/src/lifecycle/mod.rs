@@ -69,6 +69,7 @@ impl LifecycleHookExecutor {
             LifecycleHandler::TcpSocket { port, host } => {
                 self.tcp_hook(*port, host.as_deref(), container_name).await
             }
+            LifecycleHandler::Sleep { seconds } => self.sleep_hook(*seconds, container_name).await,
         }
     }
 
@@ -149,6 +150,23 @@ impl LifecycleHookExecutor {
         .map_err(|e| KubeletError::Lifecycle(format!("TCP hook connect failed: {}", e)))?;
 
         debug!(container = %container_name, "Lifecycle TCP hook succeeded");
+        Ok(())
+    }
+
+    async fn sleep_hook(&self, seconds: u64, container_name: &str) -> Result<()> {
+        debug!(container = %container_name, seconds, "Executing lifecycle Sleep hook");
+        tokio::time::timeout(
+            self.timeout,
+            tokio::time::sleep(Duration::from_secs(seconds)),
+        )
+        .await
+        .map_err(|_| {
+            KubeletError::Lifecycle(format!(
+                "Sleep hook timed out after {}s (grace period exceeded)",
+                self.timeout.as_secs()
+            ))
+        })?;
+        debug!(container = %container_name, "Lifecycle Sleep hook completed");
         Ok(())
     }
 }
@@ -233,5 +251,41 @@ mod tests {
         };
         // PreStop should always complete without panic, even on failure.
         run_pre_stop(&handler, &cid, "app", &runtime, Duration::from_millis(100)).await;
+    }
+
+    #[tokio::test]
+    async fn test_sleep_hook_completes_within_duration() {
+        let runtime = MockRuntime::new();
+        let cid = ContainerID("fake".to_string());
+        let handler = LifecycleHandler::Sleep { seconds: 0 };
+        let executor = LifecycleHookExecutor::new(Duration::from_secs(5));
+        // Sleep for 0 seconds should succeed immediately.
+        let result = executor.execute(&handler, &cid, "app", &runtime).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_sleep_hook_times_out_when_exceeds_grace_period() {
+        let runtime = MockRuntime::new();
+        let cid = ContainerID("fake".to_string());
+        // Request 60s sleep but only give 50ms grace period.
+        let handler = LifecycleHandler::Sleep { seconds: 60 };
+        let executor = LifecycleHookExecutor::new(Duration::from_millis(50));
+        let result = executor.execute(&handler, &cid, "app", &runtime).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("timed out") || msg.contains("grace period"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sleep_hook_as_pre_stop_completes_gracefully() {
+        let runtime = MockRuntime::new();
+        let cid = ContainerID("fake".to_string());
+        let handler = LifecycleHandler::Sleep { seconds: 0 };
+        // PreStop with a 0-second sleep should succeed.
+        run_pre_stop(&handler, &cid, "app", &runtime, Duration::from_secs(5)).await;
     }
 }

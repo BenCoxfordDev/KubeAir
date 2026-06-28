@@ -857,3 +857,64 @@ async fn test_container_restart_removes_old_container_record() {
         final_count
     );
 }
+
+// ── Sleep lifecycle hook integration tests ────────────────────────────────────
+
+#[tokio::test]
+async fn integ_sleep_prestop_hook_completes_within_grace_period() {
+    use kubelet_adapters::lifecycle::run_pre_stop;
+    use kubelet_adapters::mock_runtime::MockRuntime;
+    use kubelet_core::container::ContainerID;
+    use kubelet_core::pod::LifecycleHandler;
+    use std::time::{Duration, Instant};
+
+    let runtime = MockRuntime::new();
+    let cid = ContainerID("integ-sleep-container".to_string());
+    // 0-second sleep should complete near-instantly.
+    let handler = LifecycleHandler::Sleep { seconds: 0 };
+    let start = Instant::now();
+    run_pre_stop(&handler, &cid, "app", &runtime, Duration::from_secs(5)).await;
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "Sleep(0) preStop took too long: {:?}",
+        start.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn integ_sleep_prestop_hook_respects_grace_period_timeout() {
+    use kubelet_adapters::lifecycle::run_pre_stop;
+    use kubelet_adapters::mock_runtime::MockRuntime;
+    use kubelet_core::container::ContainerID;
+    use kubelet_core::pod::LifecycleHandler;
+    use std::time::{Duration, Instant};
+
+    let runtime = MockRuntime::new();
+    let cid = ContainerID("integ-sleep-timeout-container".to_string());
+    // Request a 60-second sleep but only allow 50ms — should return quickly.
+    let handler = LifecycleHandler::Sleep { seconds: 60 };
+    let start = Instant::now();
+    // PreStop swallows errors — it should not block beyond grace period.
+    run_pre_stop(&handler, &cid, "app", &runtime, Duration::from_millis(100)).await;
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "Sleep hook did not respect grace period timeout: {:?}",
+        start.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn integ_sleep_handler_maps_from_lifecycle_executor() {
+    use kubelet_adapters::lifecycle::LifecycleHookExecutor;
+    use kubelet_adapters::mock_runtime::MockRuntime;
+    use kubelet_core::container::ContainerID;
+    use kubelet_core::pod::LifecycleHandler;
+    use std::time::Duration;
+
+    let runtime = MockRuntime::new();
+    let cid = ContainerID("integ-sleep-exec-container".to_string());
+    let handler = LifecycleHandler::Sleep { seconds: 0 };
+    let executor = LifecycleHookExecutor::new(Duration::from_secs(5));
+    let result = executor.execute(&handler, &cid, "app", &runtime).await;
+    assert!(result.is_ok(), "Sleep(0) hook should succeed: {:?}", result);
+}
