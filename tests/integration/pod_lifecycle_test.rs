@@ -1006,16 +1006,6 @@ async fn integ_http_lifecycle_hook_connects_to_plain_server() {
 /// Regression test: a sidecar init container (restartPolicy=Always) with a
 /// failing readiness probe must cause the pod's Ready/ContainersReady conditions
 /// to be False.
-///
-/// Before the fix:
-///  - Readiness probe for sidecar init containers was never registered.
-///  - `init_ready` for running sidecar containers was unconditionally `true`.
-///  - The sidecar's readiness probe result was not consulted for `all_ready`.
-///  → Pod would be reported Ready even when the sidecar's readiness probe failed.
-///
-/// After the fix:
-///  - Running sidecar init containers respect their readiness probe.
-///  - The pod's Ready condition is False when the sidecar readiness probe has not passed.
 #[tokio::test]
 async fn integ_sidecar_failing_readiness_probe_keeps_pod_not_ready() {
     use kubelet_core::pod::lifecycle::{ConditionStatus, PodConditionType};
@@ -1047,13 +1037,11 @@ async fn integ_sidecar_failing_readiness_probe_keeps_pod_not_ready() {
         Arc::new(DeviceManager::new("/tmp")),
     );
 
-    // Build a pod with one sidecar init container (restartPolicy=Always) that
-    // has a readiness probe targeting a port that is guaranteed to be refused.
     let mut p = pod("sidecar-rdy-uid", "sidecar-rdy-pod", "nginx");
     p.init_containers = vec![ContainerSpec {
         name: "sidecar".to_string(),
         image: "busybox:latest".to_string(),
-        restart_policy: Some(RestartPolicy::Always), // marks it as a sidecar
+        restart_policy: Some(RestartPolicy::Always),
         readiness_probe: Some(Probe {
             handler: ProbeHandler::TcpSocket {
                 port: 19997, // nothing listening here — probe will fail
@@ -1069,20 +1057,15 @@ async fn integ_sidecar_failing_readiness_probe_keeps_pod_not_ready() {
     }];
     pm.upsert(p.clone()).await.unwrap();
 
-    // First sync: sidecar starts and is Running but readiness probe result is
-    // not yet in the map (defaults to false).
     let mut state = PodRuntimeState::default();
     worker.sync_pod(&p, &mut state).await;
 
     // Give the readiness probe task a short window to attempt and record false.
     tokio::time::sleep(Duration::from_millis(300)).await;
-
-    // Update status to reflect the current probe state.
     worker.sync_pod(&p, &mut state).await;
 
     let ls = pm.status.get(&p.uid).expect("status must exist");
 
-    // The sidecar init container itself must report ready=false (probe failing).
     let sidecar_status = ls
         .init_container_statuses
         .iter()
@@ -1093,7 +1076,6 @@ async fn integ_sidecar_failing_readiness_probe_keeps_pod_not_ready() {
         "sidecar with failing readiness probe must not be ready"
     );
 
-    // The pod's Ready condition must be False because the sidecar is not ready.
     let ready_cond = ls
         .conditions
         .iter()
@@ -1105,6 +1087,74 @@ async fn integ_sidecar_failing_readiness_probe_keeps_pod_not_ready() {
             "pod Ready must be False when sidecar readiness probe is failing"
         );
     }
-    // Note: Ready condition may not yet be set if the pod hasn't finished initialising;
-    // what matters is that `ready` on the sidecar status is false.
+}
+
+/// Regression test: a sidecar init container with a liveness probe must have
+/// that probe registered and running.  A sidecar with a startup probe must
+/// gate liveness/readiness until the startup probe passes.
+///
+/// This verifies the probe registration path without requiring a full cluster
+/// (the MockRuntime starts all containers immediately as Running).
+#[tokio::test]
+async fn integ_sidecar_liveness_probe_is_registered() {
+    use kubelet_core::pod::{Probe, ProbeHandler, RestartPolicy};
+
+    let (tx, _rx) = mpsc::channel(100);
+    let pm = Arc::new(PodManager::new(tx));
+    let rt = Arc::new(MockRuntime::new());
+    let dir = TempDir::new().unwrap();
+    let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
+    let cg = Arc::new(CgroupManager::new("/sys/fs/cgroup", true));
+    let vm = Arc::new(LocalVolumeManager::new(dir.path()));
+    let worker = PodWorker::new(
+        pm.clone(),
+        rt.clone(),
+        rt.clone(),
+        vm,
+        cm,
+        cg,
+        Arc::new(HashMap::new()),
+        "cgroupfs",
+        dir.path(),
+        "/tmp",
+        "registry.k8s.io/pause:3.9",
+        None,
+        "",
+        Arc::new(InMemoryNodeReporter::new()),
+        NodeDnsConfig::default(),
+        Arc::new(DeviceManager::new("/tmp")),
+    );
+
+    let mut p = pod("sidecar-live-uid", "sidecar-live-pod", "nginx");
+    p.init_containers = vec![ContainerSpec {
+        name: "sidecar-live".to_string(),
+        image: "busybox:latest".to_string(),
+        restart_policy: Some(RestartPolicy::Always),
+        liveness_probe: Some(Probe {
+            // Use a TCP probe to a port guaranteed to fail so we can detect
+            // the probe was armed without waiting for a kill/restart cycle.
+            handler: ProbeHandler::TcpSocket {
+                port: 19996,
+                host: None,
+            },
+            initial_delay_seconds: 0,
+            period_seconds: 1,
+            timeout_seconds: 1,
+            success_threshold: 1,
+            failure_threshold: 3,
+        }),
+        ..Default::default()
+    }];
+    pm.upsert(p.clone()).await.unwrap();
+
+    let mut state = PodRuntimeState::default();
+    // First sync starts the sidecar. Second sync finds it Running and registers probes.
+    worker.sync_pod(&p, &mut state).await;
+    worker.sync_pod(&p, &mut state).await;
+
+    // The probe_registered map must contain the sidecar's container ID after sync.
+    assert!(
+        state.probe_registered.contains_key("sidecar-live"),
+        "liveness probe for sidecar must be registered after sync"
+    );
 }

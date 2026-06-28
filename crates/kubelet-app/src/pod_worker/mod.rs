@@ -578,23 +578,94 @@ impl PodWorker {
                         self.runtime.container_status(&cid).await,
                         Ok(Some(s)) if s.state == RuntimeContainerState::Running
                     ) {
-                        // Arm the readiness probe for the sidecar if not already done.
-                        // Sidecar readiness affects the pod's ContainersReady/Ready conditions
-                        // (mirrors Go kubelet: sidecar containers contribute to readiness).
+                        let pod_ip = state.sandbox_ip.clone().unwrap_or_default();
+
+                        // Startup probe: must pass before liveness/readiness are armed.
+                        if let Some(ref startup_probe) = init_ctr.startup_probe {
+                            let reg = state.startup_probe_registered.get(&init_ctr.name);
+                            if reg.map(String::as_str) != Some(cid.0.as_str()) {
+                                let runtime = self.runtime.clone();
+                                let cid_clone = cid.clone();
+                                let probe_clone = startup_probe.clone();
+                                let done_map = self.container_startup_done.clone();
+                                tokio::spawn(async move {
+                                    spawn_startup_probe(
+                                        runtime,
+                                        cid_clone,
+                                        probe_clone,
+                                        pod_ip.clone(),
+                                        done_map,
+                                    )
+                                    .await;
+                                });
+                                state
+                                    .startup_probe_registered
+                                    .insert(init_ctr.name.clone(), cid.0.clone());
+                            }
+                            // Don't arm liveness/readiness until startup has completed.
+                            let startup_done = self
+                                .container_startup_done
+                                .get(&cid.0)
+                                .map(|v| *v)
+                                .unwrap_or(false);
+                            if !startup_done {
+                                continue; // running, startup pending
+                            }
+                        }
+
+                        // Liveness probe: kills the sidecar on threshold failure, which
+                        // triggers a restart (restartPolicy=Always guarantees restart).
+                        if let Some(ref probe) = init_ctr.liveness_probe {
+                            let registered = state.probe_registered.get(&init_ctr.name);
+                            if registered.map(String::as_str) != Some(cid.0.as_str()) {
+                                let runtime = self.runtime.clone();
+                                let cid_clone = cid.clone();
+                                let probe_clone = probe.clone();
+                                let pod_ip2 = state.sandbox_ip.clone().unwrap_or_default();
+                                let reporter_clone = self.reporter.clone();
+                                let pod_ref_clone = pod.pod_ref.clone();
+                                let pod_uid_clone = pod.uid.clone();
+                                let ctr_name_clone = init_ctr.name.clone();
+                                info!(
+                                    cid = %cid,
+                                    pod_ip = %pod_ip2,
+                                    "Spawning sidecar liveness probe task"
+                                );
+                                tokio::spawn(async move {
+                                    spawn_liveness_probe(
+                                        runtime,
+                                        cid_clone,
+                                        probe_clone,
+                                        pod_ip2,
+                                        reporter_clone,
+                                        pod_ref_clone,
+                                        pod_uid_clone,
+                                        ctr_name_clone,
+                                    )
+                                    .await;
+                                });
+                                state
+                                    .probe_registered
+                                    .insert(init_ctr.name.clone(), cid.0.clone());
+                            }
+                        }
+
+                        // Readiness probe: updates shared readiness map.
+                        // Sidecar readiness drives pod ContainersReady/Ready conditions.
                         if let Some(ref probe) = init_ctr.readiness_probe {
                             let registered = state.readiness_probe_registered.get(&init_ctr.name);
                             if registered.map(String::as_str) != Some(cid.0.as_str()) {
                                 let runtime = self.runtime.clone();
                                 let cid_clone = cid.clone();
                                 let probe_clone = probe.clone();
-                                let pod_ip = state.sandbox_ip.clone().unwrap_or_default();
+                                let pod_ip3 = state.sandbox_ip.clone().unwrap_or_default();
                                 let readiness_map = self.container_readiness.clone();
                                 tokio::spawn(async move {
                                     spawn_readiness_probe(
                                         runtime,
                                         cid_clone,
                                         probe_clone,
-                                        pod_ip,
+                                        pod_ip3,
                                         readiness_map,
                                     )
                                     .await;
@@ -604,6 +675,7 @@ impl PodWorker {
                                     .insert(init_ctr.name.clone(), cid.0.clone());
                             }
                         }
+
                         continue; // running, proceed to next
                     }
                     // Not running, fall through to (re)start
@@ -2979,14 +3051,13 @@ impl PodWorker {
             // completed (exit code 0) for regular init containers, or when it is
             // running AND its readiness probe (if any) has passed for sidecar
             // init containers (restartPolicy=Always).
-            // Mirrors Go kubelet: sidecar readiness gates the pod's ContainersReady/Ready.
             let init_ready = match &ctr_state {
                 ContainerState::Terminated { exit_code, .. } if *exit_code == 0 => true,
                 ContainerState::Running { .. } if is_sidecar_init_container(init_ctr) => {
                     if let Some(cid_str) = cid_str {
                         if init_ctr.readiness_probe.is_some() {
                             // Readiness probe registered: check probe result.
-                            // Defaults to false until the first probe fires.
+                            // Defaults to false until the first successful probe fires.
                             self.container_readiness
                                 .get(cid_str)
                                 .map(|v| *v)
@@ -3077,11 +3148,9 @@ impl PodWorker {
         // Sidecar init containers (restartPolicy=Always) contribute to the pod's
         // ContainersReady/Ready conditions, just like regular containers.
         // A sidecar that is Running but has a failing readiness probe must cause
-        // all_ready = false.  Mirrors Go kubelet's isPodReadyConditionTrue().
+        // all_ready = false.  Mirrors Go kubelet isPodReadyConditionTrue().
         for init_status in &ls.init_container_statuses {
             if !init_status.ready {
-                // Only consider sidecars (ready==false for non-sidecars is expected while
-                // regular init containers are running — they don't gate pod readiness).
                 let is_sidecar = pod
                     .init_containers
                     .iter()
