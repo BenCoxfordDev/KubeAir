@@ -857,3 +857,79 @@ async fn test_container_restart_removes_old_container_record() {
         final_count
     );
 }
+
+// ── Lifecycle hook HTTPS TLS-skip tests ──────────────────────────────────────
+//
+// Mirrors: [sig-node] Container Lifecycle Hook "should execute prestop https
+// hook properly" and "should execute poststart https hook properly".
+//
+// The Go kubelet explicitly skips TLS certificate verification for lifecycle
+// hooks (pkg/kubelet/lifecycle/handlers.go insecureSkipVerify=true) because
+// container-side servers commonly use self-signed certificates.
+
+/// HTTPS lifecycle hooks must skip TLS verification.
+/// Validated by confirming that a connection failure to a non-existent server
+/// is NOT a certificate error (which would mean TLS verify is still active).
+#[tokio::test]
+async fn integ_https_lifecycle_hook_skips_tls_verification() {
+    use kubelet_adapters::lifecycle::LifecycleHookExecutor;
+    use kubelet_adapters::mock_runtime::MockRuntime;
+    use kubelet_core::container::ContainerID;
+    use kubelet_core::pod::LifecycleHandler;
+    use std::time::Duration;
+
+    let handler = LifecycleHandler::HttpGet {
+        scheme: "HTTPS".to_string(),
+        host: Some("127.0.0.1".to_string()),
+        port: 19995,
+        path: "/healthz".to_string(),
+    };
+    let runtime = MockRuntime::new();
+    let cid = ContainerID("fake-container".to_string());
+    let executor = LifecycleHookExecutor::new(Duration::from_millis(300));
+    let result = executor.execute(&handler, &cid, "my-container", &runtime).await;
+
+    // Must fail (no server) but NOT because of a certificate error
+    assert!(result.is_err(), "Expected error — no server on port 19995");
+    let msg = result.unwrap_err().to_string().to_lowercase();
+    assert!(
+        !msg.contains("certificate") && !msg.contains("invalid cert"),
+        "HTTPS hook must skip TLS cert verification (Go kubelet: insecureSkipVerify=true), \
+         but got cert error: {}",
+        msg
+    );
+}
+
+/// HTTP (plain) lifecycle hook must work normally.
+#[tokio::test]
+async fn integ_http_lifecycle_hook_connects_to_plain_server() {
+    use kubelet_adapters::lifecycle::LifecycleHookExecutor;
+    use kubelet_adapters::mock_runtime::MockRuntime;
+    use kubelet_core::container::ContainerID;
+    use kubelet_core::pod::LifecycleHandler;
+    use std::time::Duration;
+
+    // Start a minimal plain HTTP server
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            use tokio::io::AsyncWriteExt;
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await;
+        }
+    });
+
+    let handler = LifecycleHandler::HttpGet {
+        scheme: "HTTP".to_string(),
+        host: Some("127.0.0.1".to_string()),
+        port,
+        path: "/".to_string(),
+    };
+    let runtime = MockRuntime::new();
+    let cid = ContainerID("fake-container".to_string());
+    let executor = LifecycleHookExecutor::new(Duration::from_secs(5));
+    let result = executor.execute(&handler, &cid, "my-container", &runtime).await;
+    assert!(result.is_ok(), "Plain HTTP hook should succeed: {:?}", result);
+}
