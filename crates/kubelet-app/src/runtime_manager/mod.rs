@@ -32,7 +32,7 @@ use kubelet_adapters::eviction::manager::EvictionDecision;
 use kubelet_adapters::sandbox_builder::NodeDnsConfig;
 use kubelet_core::pod::lifecycle::{ConditionStatus, PodCondition, PodConditionType, PodPhase};
 use kubelet_core::pod::manager::PodManager;
-use kubelet_core::pod::{PodOperation, PodUpdate};
+use kubelet_core::pod::{PodOperation, PodSpec, PodUpdate};
 use kubelet_core::types::PodUID;
 use kubelet_ports::driven::container_runtime::{ContainerRuntime, ImageManager};
 use kubelet_ports::driven::node_reporter::NodeReporter;
@@ -122,11 +122,104 @@ impl RuntimeManager {
     pub async fn handle_update(&self, update: PodUpdate) {
         match update.op {
             PodOperation::Add | PodOperation::Update | PodOperation::Reconcile => {
+                // Reject pods that conflict with an already-running pod's hostPorts.
+                // Mirrors pkg/kubelet/lifecycle/predicate.go GeneralPredicates.
+                if let Some(conflict_msg) = self.check_host_port_conflict(&update.pod) {
+                    warn!(pod = %update.pod.pod_ref, conflict = %conflict_msg, "Rejecting pod: hostPort conflict");
+                    self.reject_pod_admission(&update.pod, conflict_msg).await;
+                    return;
+                }
                 self.sync_pod(update.pod).await;
             }
             PodOperation::Remove => {
                 self.delete_pod(update.pod).await;
             }
+        }
+    }
+
+    /// Check whether any running pod on this node already occupies a hostPort
+    /// that `incoming` also requests.  Returns a human-readable conflict
+    /// description, or `None` if the pod can be admitted.
+    fn check_host_port_conflict(&self, incoming: &PodSpec) -> Option<String> {
+        // Collect (port, protocol) pairs that the incoming pod needs.
+        let needed: Vec<(u16, &kubelet_core::pod::Protocol)> = incoming
+            .containers
+            .iter()
+            .chain(incoming.init_containers.iter())
+            .flat_map(|c| &c.ports)
+            .filter_map(|p| p.host_port.map(|hp| (hp, &p.protocol)))
+            .collect();
+
+        if needed.is_empty() {
+            return None;
+        }
+
+        for existing in self.pod_manager.list() {
+            // Never conflict a pod with itself (handles Update/Reconcile ops).
+            if existing.uid == incoming.uid {
+                continue;
+            }
+            // Skip pods that are already in a terminal phase.
+            if self
+                .pod_manager
+                .status
+                .get(&existing.uid)
+                .is_some_and(|st| st.phase == PodPhase::Failed || st.phase == PodPhase::Succeeded)
+            {
+                continue;
+            }
+            for ctr in existing
+                .containers
+                .iter()
+                .chain(existing.init_containers.iter())
+            {
+                for port in &ctr.ports {
+                    let Some(ehp) = port.host_port else { continue };
+                    if needed
+                        .iter()
+                        .any(|&(hp, proto)| hp == ehp && proto == &port.protocol)
+                    {
+                        return Some(format!(
+                            "host port {}/{:?} already in use by pod {} ({})",
+                            ehp, port.protocol, existing.pod_ref.name, existing.uid
+                        ));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Mark a pod Failed due to admission rejection (e.g. hostPort conflict)
+    /// and report the status to the API server.  The pod is never started.
+    async fn reject_pod_admission(&self, pod: &PodSpec, message: String) {
+        let now = Utc::now();
+        let mut lifecycle_state = self.pod_manager.status.get(&pod.uid).unwrap_or_default();
+        lifecycle_state.phase = PodPhase::Failed;
+        lifecycle_state.reason = Some("HostPortConflict".to_string());
+        // Mark the pod as Unschedulable so controllers (e.g. StatefulSet)
+        // observe the failure and recreate the pod.
+        lifecycle_state
+            .conditions
+            .retain(|c| c.condition_type != PodConditionType::PodScheduled);
+        lifecycle_state.conditions.push(PodCondition {
+            condition_type: PodConditionType::PodScheduled,
+            status: ConditionStatus::False,
+            last_probe_time: None,
+            last_transition_time: Some(now),
+            reason: Some("Unschedulable".to_string()),
+            message: Some(message),
+        });
+        self.pod_manager
+            .status
+            .set(pod.uid.clone(), lifecycle_state.clone());
+
+        if let Err(e) = self
+            .reporter
+            .report_pod_status(&pod.pod_ref, &pod.uid, &lifecycle_state)
+            .await
+        {
+            warn!(pod = %pod.pod_ref, error = %e, "Failed to report admission rejection status");
         }
     }
 
@@ -838,5 +931,151 @@ mod tests {
             disruption.status,
             kubelet_core::pod::lifecycle::ConditionStatus::True
         );
+    }
+
+    // ── hostPort admission unit tests ─────────────────────────────────────────
+
+    fn make_pod_with_host_port(uid: &str, name: &str, host_port: u16) -> PodSpec {
+        use kubelet_core::pod::{ContainerPort, Protocol};
+        let mut p = make_pod(uid, name);
+        p.containers[0].ports = vec![ContainerPort {
+            name: None,
+            container_port: 8080,
+            host_port: Some(host_port),
+            protocol: Protocol::TCP,
+            host_ip: None,
+        }];
+        p
+    }
+
+    #[test]
+    fn test_check_host_port_no_conflict_when_no_host_ports() {
+        // Pods without hostPorts never trigger a conflict: check_host_port_conflict
+        // early-returns when the incoming pod has no hostPort entries at all.
+        let incoming = make_pod("uid-hp-incoming", "pod-incoming");
+        let needed: Vec<(u16, &kubelet_core::pod::Protocol)> = incoming
+            .containers
+            .iter()
+            .chain(incoming.init_containers.iter())
+            .flat_map(|c| &c.ports)
+            .filter_map(|p| p.host_port.map(|hp| (hp, &p.protocol)))
+            .collect();
+        assert!(
+            needed.is_empty(),
+            "pod with no hostPort must produce no needed ports"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_host_port_conflict_detected() {
+        let (manager, pm, _rx, _dir) = make_manager().await;
+
+        // Add a running pod that holds port 7777.
+        let existing = make_pod_with_host_port("uid-hp-1", "pod-hp-1", 7777);
+        pm.upsert(existing.clone()).await.unwrap();
+        pm.status.initialize(&existing);
+
+        // Incoming pod requests the same port → must be rejected.
+        let incoming = make_pod_with_host_port("uid-hp-2", "pod-hp-2", 7777);
+        let conflict = manager.check_host_port_conflict(&incoming);
+        assert!(
+            conflict.is_some(),
+            "expected a hostPort conflict to be detected"
+        );
+        let msg = conflict.unwrap();
+        assert!(
+            msg.contains("7777"),
+            "conflict message must include the port number"
+        );
+        assert!(
+            msg.contains("pod-hp-1"),
+            "conflict message must name the owning pod"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_host_port_no_conflict_different_ports() {
+        let (manager, pm, _rx, _dir) = make_manager().await;
+
+        let existing = make_pod_with_host_port("uid-hp-3", "pod-hp-3", 7778);
+        pm.upsert(existing.clone()).await.unwrap();
+        pm.status.initialize(&existing);
+
+        // Different port → no conflict.
+        let incoming = make_pod_with_host_port("uid-hp-4", "pod-hp-4", 7779);
+        assert!(manager.check_host_port_conflict(&incoming).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_host_port_no_conflict_with_self() {
+        // An Update/Reconcile for an existing pod must not conflict with itself.
+        let (manager, pm, _rx, _dir) = make_manager().await;
+
+        let existing = make_pod_with_host_port("uid-hp-self", "pod-hp-self", 7780);
+        pm.upsert(existing.clone()).await.unwrap();
+        pm.status.initialize(&existing);
+
+        // Same UID → no conflict even though the port matches.
+        assert!(manager.check_host_port_conflict(&existing).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_host_port_no_conflict_with_terminal_pod() {
+        use kubelet_core::pod::lifecycle::{PodLifecycleState, PodPhase};
+        let (manager, pm, _rx, _dir) = make_manager().await;
+
+        // An existing pod that already Failed must not block the incoming pod.
+        let terminal = make_pod_with_host_port("uid-hp-term", "pod-hp-term", 7781);
+        pm.upsert(terminal.clone()).await.unwrap();
+        let mut ls = PodLifecycleState::default();
+        ls.phase = PodPhase::Failed;
+        pm.status.set(terminal.uid.clone(), ls);
+
+        let incoming = make_pod_with_host_port("uid-hp-new", "pod-hp-new", 7781);
+        assert!(
+            manager.check_host_port_conflict(&incoming).is_none(),
+            "a terminal pod must not block the same hostPort"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_rejects_host_port_conflict() {
+        use kubelet_core::pod::lifecycle::PodPhase;
+        let (manager, pm, _rx, _dir) = make_manager().await;
+
+        // First pod: admitted normally.
+        let first = make_pod_with_host_port("uid-hp-admit-1", "pod-hp-admit-1", 7782);
+        pm.upsert(first.clone()).await.unwrap();
+        pm.status.initialize(&first);
+        manager
+            .handle_update(PodUpdate {
+                pod: first.clone(),
+                op: PodOperation::Add,
+            })
+            .await;
+
+        // Second pod with conflicting port: must be marked Failed, not started.
+        let second = make_pod_with_host_port("uid-hp-admit-2", "pod-hp-admit-2", 7782);
+        pm.upsert(second.clone()).await.unwrap();
+        pm.status.initialize(&second);
+        manager
+            .handle_update(PodUpdate {
+                pod: second.clone(),
+                op: PodOperation::Add,
+            })
+            .await;
+
+        // Rejection is synchronous — status must be Failed immediately.
+        let state = pm.status.get(&second.uid).expect("status must exist");
+        assert_eq!(state.phase, PodPhase::Failed);
+        assert_eq!(state.reason.as_deref(), Some("HostPortConflict"));
+
+        let sched = state
+            .conditions
+            .iter()
+            .find(|c| c.condition_type == PodConditionType::PodScheduled)
+            .expect("PodScheduled condition must be set");
+        assert_eq!(sched.status, ConditionStatus::False);
+        assert_eq!(sched.reason.as_deref(), Some("Unschedulable"));
     }
 }

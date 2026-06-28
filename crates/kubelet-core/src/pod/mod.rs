@@ -210,7 +210,7 @@ pub struct ContainerPort {
     pub host_ip: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Protocol {
     TCP,
     UDP,
