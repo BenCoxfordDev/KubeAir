@@ -578,6 +578,32 @@ impl PodWorker {
                         self.runtime.container_status(&cid).await,
                         Ok(Some(s)) if s.state == RuntimeContainerState::Running
                     ) {
+                        // Arm the readiness probe for the sidecar if not already done.
+                        // Sidecar readiness affects the pod's ContainersReady/Ready conditions
+                        // (mirrors Go kubelet: sidecar containers contribute to readiness).
+                        if let Some(ref probe) = init_ctr.readiness_probe {
+                            let registered = state.readiness_probe_registered.get(&init_ctr.name);
+                            if registered.map(String::as_str) != Some(cid.0.as_str()) {
+                                let runtime = self.runtime.clone();
+                                let cid_clone = cid.clone();
+                                let probe_clone = probe.clone();
+                                let pod_ip = state.sandbox_ip.clone().unwrap_or_default();
+                                let readiness_map = self.container_readiness.clone();
+                                tokio::spawn(async move {
+                                    spawn_readiness_probe(
+                                        runtime,
+                                        cid_clone,
+                                        probe_clone,
+                                        pod_ip,
+                                        readiness_map,
+                                    )
+                                    .await;
+                                });
+                                state
+                                    .readiness_probe_registered
+                                    .insert(init_ctr.name.clone(), cid.0.clone());
+                            }
+                        }
                         continue; // running, proceed to next
                     }
                     // Not running, fall through to (re)start
@@ -2951,10 +2977,27 @@ impl PodWorker {
 
             // An init container is considered "ready" once it has successfully
             // completed (exit code 0) for regular init containers, or when it is
-            // running for sidecar init containers (restartPolicy=Always).
+            // running AND its readiness probe (if any) has passed for sidecar
+            // init containers (restartPolicy=Always).
+            // Mirrors Go kubelet: sidecar readiness gates the pod's ContainersReady/Ready.
             let init_ready = match &ctr_state {
                 ContainerState::Terminated { exit_code, .. } if *exit_code == 0 => true,
-                ContainerState::Running { .. } if is_sidecar_init_container(init_ctr) => true,
+                ContainerState::Running { .. } if is_sidecar_init_container(init_ctr) => {
+                    if let Some(cid_str) = cid_str {
+                        if init_ctr.readiness_probe.is_some() {
+                            // Readiness probe registered: check probe result.
+                            // Defaults to false until the first probe fires.
+                            self.container_readiness
+                                .get(cid_str)
+                                .map(|v| *v)
+                                .unwrap_or(false)
+                        } else {
+                            true
+                        }
+                    } else {
+                        false
+                    }
+                }
                 _ => false,
             };
 
@@ -3030,6 +3073,27 @@ impl PodWorker {
         }
 
         let mut all_ready = true;
+
+        // Sidecar init containers (restartPolicy=Always) contribute to the pod's
+        // ContainersReady/Ready conditions, just like regular containers.
+        // A sidecar that is Running but has a failing readiness probe must cause
+        // all_ready = false.  Mirrors Go kubelet's isPodReadyConditionTrue().
+        for init_status in &ls.init_container_statuses {
+            if !init_status.ready {
+                // Only consider sidecars (ready==false for non-sidecars is expected while
+                // regular init containers are running — they don't gate pod readiness).
+                let is_sidecar = pod
+                    .init_containers
+                    .iter()
+                    .find(|c| c.name == init_status.name)
+                    .map(is_sidecar_init_container)
+                    .unwrap_or(false);
+                if is_sidecar && matches!(init_status.state, ContainerState::Running { .. }) {
+                    all_ready = false;
+                }
+            }
+        }
+
         let mut new_statuses = Vec::new();
 
         for ctr in &pod.containers {

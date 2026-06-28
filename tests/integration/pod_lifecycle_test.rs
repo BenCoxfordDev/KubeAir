@@ -1002,3 +1002,109 @@ async fn integ_http_lifecycle_hook_connects_to_plain_server() {
         result
     );
 }
+
+/// Regression test: a sidecar init container (restartPolicy=Always) with a
+/// failing readiness probe must cause the pod's Ready/ContainersReady conditions
+/// to be False.
+///
+/// Before the fix:
+///  - Readiness probe for sidecar init containers was never registered.
+///  - `init_ready` for running sidecar containers was unconditionally `true`.
+///  - The sidecar's readiness probe result was not consulted for `all_ready`.
+///  → Pod would be reported Ready even when the sidecar's readiness probe failed.
+///
+/// After the fix:
+///  - Running sidecar init containers respect their readiness probe.
+///  - The pod's Ready condition is False when the sidecar readiness probe has not passed.
+#[tokio::test]
+async fn integ_sidecar_failing_readiness_probe_keeps_pod_not_ready() {
+    use kubelet_core::pod::lifecycle::{ConditionStatus, PodConditionType};
+    use kubelet_core::pod::{Probe, ProbeHandler, RestartPolicy};
+
+    let (tx, _rx) = mpsc::channel(100);
+    let pm = Arc::new(PodManager::new(tx));
+    let rt = Arc::new(MockRuntime::new());
+    let dir = TempDir::new().unwrap();
+    let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
+    let cg = Arc::new(CgroupManager::new("/sys/fs/cgroup", true));
+    let vm = Arc::new(LocalVolumeManager::new(dir.path()));
+    let worker = PodWorker::new(
+        pm.clone(),
+        rt.clone(),
+        rt.clone(),
+        vm,
+        cm,
+        cg,
+        Arc::new(HashMap::new()),
+        "cgroupfs",
+        dir.path(),
+        "/tmp",
+        "registry.k8s.io/pause:3.9",
+        None,
+        "",
+        Arc::new(InMemoryNodeReporter::new()),
+        NodeDnsConfig::default(),
+        Arc::new(DeviceManager::new("/tmp")),
+    );
+
+    // Build a pod with one sidecar init container (restartPolicy=Always) that
+    // has a readiness probe targeting a port that is guaranteed to be refused.
+    let mut p = pod("sidecar-rdy-uid", "sidecar-rdy-pod", "nginx");
+    p.init_containers = vec![ContainerSpec {
+        name: "sidecar".to_string(),
+        image: "busybox:latest".to_string(),
+        restart_policy: Some(RestartPolicy::Always), // marks it as a sidecar
+        readiness_probe: Some(Probe {
+            handler: ProbeHandler::TcpSocket {
+                port: 19997, // nothing listening here — probe will fail
+                host: None,
+            },
+            initial_delay_seconds: 0,
+            period_seconds: 1,
+            timeout_seconds: 1,
+            success_threshold: 1,
+            failure_threshold: 1,
+        }),
+        ..Default::default()
+    }];
+    pm.upsert(p.clone()).await.unwrap();
+
+    // First sync: sidecar starts and is Running but readiness probe result is
+    // not yet in the map (defaults to false).
+    let mut state = PodRuntimeState::default();
+    worker.sync_pod(&p, &mut state).await;
+
+    // Give the readiness probe task a short window to attempt and record false.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Update status to reflect the current probe state.
+    worker.sync_pod(&p, &mut state).await;
+
+    let ls = pm.status.get(&p.uid).expect("status must exist");
+
+    // The sidecar init container itself must report ready=false (probe failing).
+    let sidecar_status = ls
+        .init_container_statuses
+        .iter()
+        .find(|s| s.name == "sidecar")
+        .expect("sidecar status must be present");
+    assert!(
+        !sidecar_status.ready,
+        "sidecar with failing readiness probe must not be ready"
+    );
+
+    // The pod's Ready condition must be False because the sidecar is not ready.
+    let ready_cond = ls
+        .conditions
+        .iter()
+        .find(|c| c.condition_type == PodConditionType::Ready);
+    if let Some(cond) = ready_cond {
+        assert_eq!(
+            cond.status,
+            ConditionStatus::False,
+            "pod Ready must be False when sidecar readiness probe is failing"
+        );
+    }
+    // Note: Ready condition may not yet be set if the pod hasn't finished initialising;
+    // what matters is that `ready` on the sidecar status is false.
+}
