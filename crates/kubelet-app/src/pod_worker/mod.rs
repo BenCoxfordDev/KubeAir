@@ -1599,17 +1599,45 @@ impl PodWorker {
         std::fs::create_dir_all(&pod_dir)?;
         let hosts_path = pod_dir.join("etc-hosts");
 
-        let mut content = String::from("# Kubernetes-managed hosts file.\n");
-        content.push_str("127.0.0.1\tlocalhost\n");
-        content.push_str("::1\tlocalhost ip6-localhost ip6-loopback\n");
-        content.push_str("fe00::0\tip6-localnet\n");
-        content.push_str("fe00::0\tip6-mcastprefix\n");
-        content.push_str("fe00::1\tip6-allnodes\n");
-        content.push_str("fe00::2\tip6-allrouters\n");
+        // Host-network pods: prepend with a different header but otherwise
+        // use the node's /etc/hosts as the base, then append HostAliases.
+        // Mirrors Go kubelet: pkg/kubelet/kubelet_pods.go nodeHostsFileContent()
+        let mut content = if pod.host_network {
+            let node_hosts = std::fs::read_to_string("/etc/hosts").unwrap_or_default();
+            format!(
+                "# Kubernetes-managed hosts file (host network).\n{}",
+                node_hosts
+            )
+        } else {
+            let mut s = String::from("# Kubernetes-managed hosts file.\n");
+            s.push_str("127.0.0.1\tlocalhost\n");
+            s.push_str("::1\tlocalhost ip6-localhost ip6-loopback\n");
+            s.push_str("fe00::0\tip6-localnet\n");
+            s.push_str("fe00::0\tip6-mcastprefix\n");
+            s.push_str("fe00::1\tip6-allnodes\n");
+            s.push_str("fe00::2\tip6-allrouters\n");
 
-        if let Some(ip) = pod_ip.filter(|ip| !ip.is_empty()) {
-            content.push_str(&format!("{}\t{}\n", ip, self.pod_hostname(pod)));
-        }
+            // Pod IP entry: include FQDN when subdomain is set, matching
+            // Go kubelet: pkg/kubelet/kubelet_pods.go managedHostsFileContent()
+            if let Some(ip) = pod_ip.filter(|ip| !ip.is_empty()) {
+                let hostname = self.pod_hostname(pod);
+                if let Some(ref subdomain) = pod.subdomain {
+                    if !subdomain.is_empty() {
+                        // Format: "{ip}\t{hostname}.{subdomain}.{namespace}.svc.cluster.local\t{hostname}"
+                        // Go uses the full hostDomainName passed from GeneratePodHostNameAndDomain.
+                        // We approximate it as "<subdomain>.<namespace>.svc.cluster.local".
+                        let domain =
+                            format!("{}.{}.svc.cluster.local", subdomain, pod.pod_ref.namespace);
+                        s.push_str(&format!("{}\t{}.{}\t{}\n", ip, hostname, domain, hostname));
+                    } else {
+                        s.push_str(&format!("{}\t{}\n", ip, hostname));
+                    }
+                } else {
+                    s.push_str(&format!("{}\t{}\n", ip, hostname));
+                }
+            }
+            s
+        };
 
         info!(
             pod = %pod.pod_ref,
@@ -1617,6 +1645,9 @@ impl PodWorker {
             "write_etc_hosts_file: host_aliases"
         );
         if !pod.host_aliases.is_empty() {
+            // Go kubelet writes a blank line separator before the HostAliases block.
+            // See: pkg/kubelet/kubelet_pods.go hostsEntriesFromHostAliases()
+            content.push('\n');
             content.push_str("# Entries added by HostAliases.\n");
             for ha in &pod.host_aliases {
                 if !ha.ip.is_empty() && !ha.hostnames.is_empty() {
@@ -5880,6 +5911,88 @@ mod tests {
 
         assert!(content.contains("1.2.3.4\tfoo.local\tbar.local"));
         assert!(content.contains("# Entries added by HostAliases."));
+        // Go kubelet writes a blank line before the HostAliases block.
+        assert!(content.contains("\n\n# Entries added by HostAliases."));
+    }
+
+    #[test]
+    fn test_write_etc_hosts_file_subdomain_fqdn_entry() {
+        let rt = Arc::new(MockRuntime::new());
+        let dir = tempfile::TempDir::new().unwrap();
+        let (tx, _rx) = mpsc::channel(8);
+        let pm = Arc::new(PodManager::new(tx));
+        let worker = PodWorker::new(
+            pm,
+            rt.clone(),
+            rt,
+            Arc::new(LocalVolumeManager::new(dir.path())),
+            Arc::new(CheckpointManager::new(dir.path()).unwrap()),
+            Arc::new(CgroupManager::new("/sys/fs/cgroup", true)),
+            Arc::new(HashMap::new()),
+            "cgroupfs",
+            dir.path(),
+            "/tmp",
+            "registry.k8s.io/pause:3.9",
+            None,
+            "node1",
+            Arc::new(InMemoryNodeReporter::new()),
+            NodeDnsConfig::default(),
+            Arc::new(DeviceManager::new("/tmp")),
+        );
+        let mut pod = make_pod("uid-subdomain", "my-pod");
+        pod.subdomain = Some("my-svc".to_string());
+
+        let hosts_path = worker.write_etc_hosts_file(&pod, Some("10.0.0.9")).unwrap();
+        let content = std::fs::read_to_string(hosts_path).unwrap();
+
+        // Should contain FQDN entry: "{ip}\t{hostname}.{subdomain}.{ns}.svc.cluster.local\t{hostname}"
+        assert!(
+            content.contains("my-pod.my-svc.default.svc.cluster.local"),
+            "FQDN entry missing from hosts file: {content}"
+        );
+        assert!(
+            content.contains("10.0.0.9\tmy-pod.my-svc.default.svc.cluster.local\tmy-pod"),
+            "FQDN format wrong: {content}"
+        );
+    }
+
+    #[test]
+    fn test_write_etc_hosts_file_host_network_uses_node_hosts() {
+        let rt = Arc::new(MockRuntime::new());
+        let dir = tempfile::TempDir::new().unwrap();
+        let (tx, _rx) = mpsc::channel(8);
+        let pm = Arc::new(PodManager::new(tx));
+        let worker = PodWorker::new(
+            pm,
+            rt.clone(),
+            rt,
+            Arc::new(LocalVolumeManager::new(dir.path())),
+            Arc::new(CheckpointManager::new(dir.path()).unwrap()),
+            Arc::new(CgroupManager::new("/sys/fs/cgroup", true)),
+            Arc::new(HashMap::new()),
+            "cgroupfs",
+            dir.path(),
+            "/tmp",
+            "registry.k8s.io/pause:3.9",
+            None,
+            "node1",
+            Arc::new(InMemoryNodeReporter::new()),
+            NodeDnsConfig::default(),
+            Arc::new(DeviceManager::new("/tmp")),
+        );
+        let mut pod = make_pod("uid-hostnet", "hostnet-pod");
+        pod.host_network = true;
+
+        let hosts_path = worker
+            .write_etc_hosts_file(&pod, Some("10.0.0.10"))
+            .unwrap();
+        let content = std::fs::read_to_string(hosts_path).unwrap();
+
+        // Host-network pods use a different header.
+        assert!(
+            content.starts_with("# Kubernetes-managed hosts file (host network)."),
+            "host-network header missing: {content}"
+        );
     }
 
     #[tokio::test]
