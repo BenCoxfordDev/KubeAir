@@ -110,8 +110,14 @@ impl LifecycleHookExecutor {
         let url = format!("{}://{}:{}{}", scheme.to_lowercase(), host, port, path);
         debug!(container = %container_name, url = %url, "Executing lifecycle HTTP hook");
 
+        // Lifecycle hooks commonly call into container-side servers that use
+        // self-signed certificates (e.g. the upstream conformance test server).
+        // The Go kubelet explicitly disables TLS verification for lifecycle hooks
+        // (pkg/kubelet/lifecycle/handlers.go). We mirror that behaviour here.
+        let is_https = scheme.eq_ignore_ascii_case("https");
         let client = reqwest::Client::builder()
             .timeout(self.timeout)
+            .danger_accept_invalid_certs(is_https)
             .build()
             .map_err(|e| KubeletError::Lifecycle(format!("HTTP client build: {}", e)))?;
 
@@ -287,5 +293,35 @@ mod tests {
         let handler = LifecycleHandler::Sleep { seconds: 0 };
         // PreStop with a 0-second sleep should succeed.
         run_pre_stop(&handler, &cid, "app", &runtime, Duration::from_secs(5)).await;
+    }
+
+    /// HTTPS lifecycle hook with a bad/unreachable server must not panic,
+    /// and the error must not mention "certificate" (i.e. it fails on connection,
+    /// not on TLS verification — verifying that danger_accept_invalid_certs is set).
+    #[tokio::test]
+    async fn test_https_hook_fails_on_connection_not_tls_verify() {
+        // Port 19997 should have nothing listening. The error should be a
+        // connection-refused / timeout, NOT a certificate verification error.
+        let handler = LifecycleHandler::HttpGet {
+            scheme: "HTTPS".to_string(),
+            host: Some("127.0.0.1".to_string()),
+            port: 19997,
+            path: "/".to_string(),
+        };
+        let runtime = MockRuntime::new();
+        let cid = ContainerID("fake".to_string());
+        let executor = LifecycleHookExecutor::new(Duration::from_millis(200));
+        let result = executor.execute(&handler, &cid, "app", &runtime).await;
+        assert!(
+            result.is_err(),
+            "Expected error when no server is listening"
+        );
+        let err_msg = result.unwrap_err().to_string().to_lowercase();
+        // Must not fail with a TLS certificate verification error
+        assert!(
+            !err_msg.contains("certificate") && !err_msg.contains("invalid cert"),
+            "HTTPS hook should skip TLS verification, not fail on certificate: {}",
+            err_msg
+        );
     }
 }
