@@ -693,3 +693,41 @@ fn integ_downward_api_pod_name_and_namespace_env_vars() {
     assert_eq!(resolved["POD_NAME"], "my-workload");
     assert_eq!(resolved["POD_NAMESPACE"], "kube-system");
 }
+
+/// status.podIP for a host-network pod must resolve to a non-empty address
+/// (the node's own IP) even without a sandbox IP.
+/// Mirrors [sig-node] Downward API "should provide host IP and pod IP as an env var
+/// if pod uses host network [LinuxOnly]"
+#[test]
+fn integ_downward_api_pod_ip_host_network_falls_back_to_host_ip() {
+    let mut p = pod("uid-hn", "hn-pod", "default");
+    p.host_network = true;
+    p.containers[0].env = vec![
+        EnvVar {
+            name: "POD_IP".to_string(),
+            value: None,
+            value_from: Some(EnvVarSource::FieldRef {
+                field_path: "status.podIP".to_string(),
+            }),
+        },
+        EnvVar {
+            name: "HOST_IP".to_string(),
+            value: None,
+            value_from: Some(EnvVarSource::FieldRef {
+                field_path: "status.hostIP".to_string(),
+            }),
+        },
+    ];
+    let resolved: HashMap<_, _> = resolve_downward_api_env(&p, &p.containers[0])
+        .into_iter()
+        .collect();
+    assert!(
+        !resolved["POD_IP"].is_empty(),
+        "status.podIP for host-network pod must not be empty, got {:?}",
+        resolved["POD_IP"]
+    );
+    assert_eq!(
+        resolved["POD_IP"], resolved["HOST_IP"],
+        "For host-network pods, POD_IP and HOST_IP must be the same address"
+    );
+}

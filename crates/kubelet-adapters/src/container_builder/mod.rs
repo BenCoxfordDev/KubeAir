@@ -168,7 +168,15 @@ pub fn resolve_downward_api_env(pod: &PodSpec, container: &ContainerSpec) -> Vec
                 "spec.serviceAccountName" => pod.service_account_name.clone(),
                 // status.hostIP is the node's outbound IP, always available.
                 "status.hostIP" => detect_node_ip_for_downward_api(),
-                "status.podIP" => String::new(), // filled in after sandbox creation
+                // status.podIP: for host-network pods, pod IP equals host IP.
+                // For regular pods it is filled in later (after sandbox creation).
+                "status.podIP" => {
+                    if pod.host_network {
+                        detect_node_ip_for_downward_api()
+                    } else {
+                        String::new()
+                    }
+                }
                 _ => {
                     // Check labels/annotations: "metadata.labels['key']", "metadata.annotations['key']"
                     if let Some(key) = field_path

@@ -4124,7 +4124,16 @@ fn resolve_env_var_source(
             "metadata.uid" => pod.uid.0.clone(),
             "spec.nodeName" => pod.node_name.clone(),
             "spec.serviceAccountName" => pod.service_account_name.clone(),
-            "status.podIP" | "status.podIPs" => pod_ip.unwrap_or_default().to_string(),
+            "status.podIP" | "status.podIPs" => pod_ip
+                .filter(|ip| !ip.is_empty())
+                .map(|ip| ip.to_string())
+                .unwrap_or_else(|| {
+                    if pod.host_network {
+                        detect_node_internal_ip()
+                    } else {
+                        String::new()
+                    }
+                }),
             "status.hostIP" => detect_node_internal_ip(),
             // Delegate remaining paths (metadata.annotations['key'], metadata.labels['key'], etc.)
             _ => resolve_field_ref(pod, field_path),
@@ -4792,7 +4801,18 @@ fn resolve_field_ref_with_pod_ip(pod: &PodSpec, field: &str, pod_ip: Option<&str
         // Host IP is the node's primary IP — available immediately.
         "status.hostIP" => detect_node_internal_ip(),
         // Pod IP comes from the sandbox — use the supplied value when available.
-        "status.podIP" | "status.podIPs" => pod_ip.unwrap_or_default().to_string(),
+        // For host-network pods the CRI returns no sandbox IP, so fall back
+        // to the node's own IP (pod shares the host network namespace).
+        "status.podIP" | "status.podIPs" => pod_ip
+            .filter(|ip| !ip.is_empty())
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| {
+                if pod.host_network {
+                    detect_node_internal_ip()
+                } else {
+                    String::new()
+                }
+            }),
         _ => String::new(),
     }
 }
@@ -6493,6 +6513,19 @@ mod tests {
         let pod = make_pod("uid-pip-ns", "pod-pip-ns");
         let result = resolve_field_ref_with_pod_ip(&pod, "status.podIP", None);
         assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_resolve_field_ref_status_pod_ip_host_network_falls_back_to_host_ip() {
+        // For host-network pods the CRI returns no sandbox IP, so status.podIP
+        // should resolve to the node's own IP (same as status.hostIP).
+        let mut pod = make_pod("uid-hn", "pod-hn");
+        pod.host_network = true;
+        let result = resolve_field_ref_with_pod_ip(&pod, "status.podIP", None);
+        assert!(
+            !result.is_empty(),
+            "status.podIP for host-network pod must not be empty"
+        );
     }
 
     #[test]
