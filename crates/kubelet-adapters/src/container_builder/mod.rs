@@ -166,6 +166,8 @@ pub fn resolve_downward_api_env(pod: &PodSpec, container: &ContainerSpec) -> Vec
                 "metadata.uid" => pod.uid.0.clone(),
                 "spec.nodeName" => pod.node_name.clone(),
                 "spec.serviceAccountName" => pod.service_account_name.clone(),
+                // status.hostIP is the node's outbound IP, always available.
+                "status.hostIP" => detect_node_ip_for_downward_api(),
                 "status.podIP" => String::new(), // filled in after sandbox creation
                 _ => {
                     // Check labels/annotations: "metadata.labels['key']", "metadata.annotations['key']"
@@ -289,6 +291,28 @@ pub fn resolve_secret_env(
     }
 
     resolved
+}
+
+/// Return the node's outbound IP address for Downward API `status.hostIP` resolution.
+///
+/// Uses a non-blocking UDP connect trick to find the local address the OS would
+/// route to the internet, then falls back to `127.0.0.1` in sandboxed environments.
+fn detect_node_ip_for_downward_api() -> String {
+    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0")
+        && sock.connect("1.1.1.1:80").is_ok()
+        && let Ok(addr) = sock.local_addr()
+    {
+        if let std::net::IpAddr::V4(v4) = addr.ip()
+            && !v4.is_loopback()
+        {
+            return v4.to_string();
+        }
+        let s = addr.ip().to_string();
+        if !s.starts_with("::1") && s != "::1" {
+            return s;
+        }
+    }
+    "127.0.0.1".to_string()
 }
 
 #[cfg(test)]

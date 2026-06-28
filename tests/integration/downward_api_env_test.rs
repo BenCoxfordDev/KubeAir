@@ -590,7 +590,7 @@ fn integ_volume_mount_read_only_flag() {
     assert!(vm.read_only);
 }
 
-/// Integration: EmptyDir volume with HugePages medium is correctly modelled.
+/// Integration: emptydir_huge_pages_medium source is modelled with correct medium.
 /// Mirrors emptydir.go "should support tmpfs and hugetlb emptydir volumes"
 #[test]
 fn integ_emptydir_huge_pages_medium() {
@@ -608,4 +608,88 @@ fn integ_emptydir_huge_pages_medium() {
         }
         _ => panic!("expected EmptyDir source"),
     }
+}
+
+// ── Downward API volume status-field env tests ────────────────────────────────
+//
+// Mirrors:
+//   test/e2e/common/node/downwardapi.go — "should provide host IP as an env var"
+//   test/e2e/common/node/downwardapi.go — "should provide pod UID as an env var"
+//   test/e2e/common/node/downwardapi.go — "should provide pod name/namespace as env vars"
+//
+// status.hostIP and status.podIP are resolved in env-var paths (resolve_downward_api_env)
+// and in volume-file paths (resolve_field_ref_with_pod_ip inside pod_worker).
+// The env-var path is tested here; the volume-file path is tested in the unit
+// tests embedded in pod_worker::mod.rs (test_resolve_downward_api_value_host_ip_*).
+
+/// status.hostIP env var resolves to a non-empty address.
+/// Mirrors [sig-node] Downward API "should provide host IP as an env var"
+#[test]
+fn integ_downward_api_host_ip_env_var_non_empty() {
+    let mut p = pod("uid-hostip", "hostip-pod", "default");
+    p.containers[0].env = vec![EnvVar {
+        name: "HOST_IP".to_string(),
+        value: None,
+        value_from: Some(EnvVarSource::FieldRef {
+            field_path: "status.hostIP".to_string(),
+        }),
+    }];
+    let resolved: HashMap<_, _> = resolve_downward_api_env(&p, &p.containers[0])
+        .into_iter()
+        .collect();
+    assert!(
+        resolved.contains_key("HOST_IP"),
+        "HOST_IP must be present in env"
+    );
+    assert!(
+        !resolved["HOST_IP"].is_empty(),
+        "status.hostIP must resolve to a non-empty address, got {:?}",
+        resolved["HOST_IP"]
+    );
+}
+
+/// metadata.uid env var resolves to the pod UID string.
+/// Mirrors [sig-node] Downward API "should provide pod UID as an env var"
+#[test]
+fn integ_downward_api_pod_uid_env_var() {
+    let mut p = pod("pod-uid-999", "uid-pod", "default");
+    p.containers[0].env = vec![EnvVar {
+        name: "POD_UID".to_string(),
+        value: None,
+        value_from: Some(EnvVarSource::FieldRef {
+            field_path: "metadata.uid".to_string(),
+        }),
+    }];
+    let resolved: HashMap<_, _> = resolve_downward_api_env(&p, &p.containers[0])
+        .into_iter()
+        .collect();
+    assert_eq!(resolved["POD_UID"], "pod-uid-999");
+}
+
+/// metadata.name and metadata.namespace env vars for sig-node conformance.
+/// Mirrors [sig-node] Downward API "should provide pod name/namespace as env vars"
+#[test]
+fn integ_downward_api_pod_name_and_namespace_env_vars() {
+    let mut p = pod("uid-nn", "my-workload", "kube-system");
+    p.containers[0].env = vec![
+        EnvVar {
+            name: "POD_NAME".to_string(),
+            value: None,
+            value_from: Some(EnvVarSource::FieldRef {
+                field_path: "metadata.name".to_string(),
+            }),
+        },
+        EnvVar {
+            name: "POD_NAMESPACE".to_string(),
+            value: None,
+            value_from: Some(EnvVarSource::FieldRef {
+                field_path: "metadata.namespace".to_string(),
+            }),
+        },
+    ];
+    let resolved: HashMap<_, _> = resolve_downward_api_env(&p, &p.containers[0])
+        .into_iter()
+        .collect();
+    assert_eq!(resolved["POD_NAME"], "my-workload");
+    assert_eq!(resolved["POD_NAMESPACE"], "kube-system");
 }
