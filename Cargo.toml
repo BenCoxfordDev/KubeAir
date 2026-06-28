@@ -140,6 +140,10 @@ name = "integration_security_context"
 path = "tests/integration/security_context_test.rs"
 
 [[test]]
+name = "integration_projected_volume"
+path = "tests/integration/projected_volume_test.rs"
+
+[[test]]
 name = "integration_container_state"
 path = "tests/integration/container_state_test.rs"
 

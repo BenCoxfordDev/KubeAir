@@ -113,7 +113,7 @@ impl ProjectedVolumeManager {
                     optional,
                     ..
                 } => match secrets.get(name.as_str()) {
-                    Some(s) => self.secret_mgr.mount(s, target_path, items, 0o600)?,
+                    Some(s) => self.secret_mgr.mount(s, target_path, items, default_mode)?,
                     None if *optional => {
                         debug!(secret = %name, "Optional Secret not found, skipping");
                     }
@@ -291,5 +291,147 @@ mod tests {
         )
         .unwrap();
         assert!(target.join("token").exists());
+    }
+
+    fn sample_secret() -> SecretData {
+        SecretData {
+            namespace: "default".to_string(),
+            name: "my-secret".to_string(),
+            data: [("api-key".to_string(), b"hunter2".to_vec())]
+                .into_iter()
+                .collect(),
+            secret_type: "Opaque".to_string(),
+        }
+    }
+
+    /// Projected secret files must be written with the volume's `defaultMode`,
+    /// not a hardcoded 0o600.
+    /// Mirrors: [sig-storage] Projected secret should be consumable from pods in
+    /// volume with defaultMode set [LinuxOnly]
+    #[cfg(unix)]
+    #[test]
+    fn test_projected_secret_uses_default_mode_not_hardcoded_600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let mgr = ProjectedVolumeManager::new(dir.path());
+        let target = dir.path().join("projected");
+
+        let mut secrets = HashMap::new();
+        secrets.insert("my-secret".to_string(), sample_secret());
+
+        let sources = vec![ProjectedVolumeSource::Secret {
+            name: "my-secret".to_string(),
+            namespace: "default".to_string(),
+            items: vec![],
+            optional: false,
+        }];
+
+        // Mount with defaultMode 0o644 (world-readable).
+        mgr.mount(&sources, &target, 0o644, &HashMap::new(), &secrets, None)
+            .unwrap();
+
+        let meta = std::fs::metadata(target.join("api-key")).unwrap();
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o644,
+            "Projected secret file must use defaultMode 0o644, got {:#o}",
+            mode
+        );
+    }
+
+    /// When defaultMode is 0o600, projected secret files must be 0o600.
+    #[cfg(unix)]
+    #[test]
+    fn test_projected_secret_mode_600_when_default_mode_600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let mgr = ProjectedVolumeManager::new(dir.path());
+        let target = dir.path().join("projected");
+
+        let mut secrets = HashMap::new();
+        secrets.insert("my-secret".to_string(), sample_secret());
+
+        let sources = vec![ProjectedVolumeSource::Secret {
+            name: "my-secret".to_string(),
+            namespace: "default".to_string(),
+            items: vec![],
+            optional: false,
+        }];
+
+        mgr.mount(&sources, &target, 0o600, &HashMap::new(), &secrets, None)
+            .unwrap();
+
+        let meta = std::fs::metadata(target.join("api-key")).unwrap();
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    /// ConfigMap and Secret in the same projected volume both respect defaultMode.
+    #[cfg(unix)]
+    #[test]
+    fn test_projected_configmap_and_secret_share_default_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let mgr = ProjectedVolumeManager::new(dir.path());
+        let target = dir.path().join("projected");
+
+        let mut cms = HashMap::new();
+        cms.insert(
+            "my-cm".to_string(),
+            ConfigMapData {
+                namespace: "default".to_string(),
+                name: "my-cm".to_string(),
+                data: [("config.yaml".to_string(), "key: val".to_string())]
+                    .into_iter()
+                    .collect(),
+                binary_data: HashMap::new(),
+            },
+        );
+
+        let mut secrets = HashMap::new();
+        secrets.insert("my-secret".to_string(), sample_secret());
+
+        let sources = vec![
+            ProjectedVolumeSource::ConfigMap {
+                name: "my-cm".to_string(),
+                namespace: "default".to_string(),
+                items: vec![],
+                optional: false,
+            },
+            ProjectedVolumeSource::Secret {
+                name: "my-secret".to_string(),
+                namespace: "default".to_string(),
+                items: vec![],
+                optional: false,
+            },
+        ];
+
+        mgr.mount(&sources, &target, 0o420, &cms, &secrets, None)
+            .unwrap();
+
+        let cm_mode = std::fs::metadata(target.join("config.yaml"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        let sec_mode = std::fs::metadata(target.join("api-key"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+
+        assert_eq!(
+            cm_mode, 0o420,
+            "ConfigMap file mode should be 0o420, got {:#o}",
+            cm_mode
+        );
+        assert_eq!(
+            sec_mode, 0o420,
+            "Secret file mode should be 0o420 (same defaultMode as ConfigMap), got {:#o}",
+            sec_mode
+        );
     }
 }
