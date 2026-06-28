@@ -23,11 +23,14 @@ pub mod pleg;
 
 use crate::pod_worker::{PodRuntimeState, PodSyncResult, PodWorker};
 use crate::runtime_manager::pleg::GenericPleg;
+use chrono::Utc;
 use kube::Client as KubeClient;
 use kubelet_adapters::cgroup::CgroupManager;
 use kubelet_adapters::checkpoint::CheckpointManager;
 use kubelet_adapters::device_manager::DeviceManager;
+use kubelet_adapters::eviction::manager::EvictionDecision;
 use kubelet_adapters::sandbox_builder::NodeDnsConfig;
+use kubelet_core::pod::lifecycle::{ConditionStatus, PodCondition, PodConditionType, PodPhase};
 use kubelet_core::pod::manager::PodManager;
 use kubelet_core::pod::{PodOperation, PodUpdate};
 use kubelet_core::types::PodUID;
@@ -399,6 +402,101 @@ impl RuntimeManager {
         });
     }
 
+    /// Evict a pod: mark it Failed/Evicted, terminate it, then force-delete it
+    /// from the API server.
+    ///
+    /// Mirrors pkg/kubelet/eviction/eviction_manager.go `killPodFunc`.
+    pub async fn evict_pod(&self, eviction: EvictionDecision) {
+        let Some(pod) = self.pod_manager.get(&eviction.pod_uid) else {
+            // Pod already gone — nothing to do.
+            return;
+        };
+
+        // Mark the pod Failed/Evicted in the status store before termination so
+        // that any concurrent reporter loop that fires sees the correct phase.
+        let now = Utc::now();
+        let mut lifecycle_state = self
+            .pod_manager
+            .status
+            .get(&eviction.pod_uid)
+            .unwrap_or_default();
+        lifecycle_state.phase = PodPhase::Failed;
+        lifecycle_state.reason = Some("Evicted".to_string());
+        // Add DisruptionTarget condition so controllers can detect the eviction.
+        lifecycle_state
+            .conditions
+            .retain(|c| c.condition_type != PodConditionType::DisruptionTarget);
+        lifecycle_state.conditions.push(PodCondition {
+            condition_type: PodConditionType::DisruptionTarget,
+            status: ConditionStatus::True,
+            last_probe_time: None,
+            last_transition_time: Some(now),
+            reason: Some("EvictionByEvictionAPI".to_string()),
+            message: Some(eviction.message.clone()),
+        });
+        self.pod_manager
+            .status
+            .set(eviction.pod_uid.clone(), lifecycle_state);
+
+        let worker = self.worker.clone();
+        let states = self.pod_states.clone();
+        let reporter = self.reporter.clone();
+        let pod_manager = self.pod_manager.clone();
+        let sync_slots = self.sync_slots.clone();
+        let grace_period = eviction.grace_period;
+
+        info!(
+            pod = %pod.pod_ref,
+            uid = %eviction.pod_uid,
+            reason = %eviction.reason,
+            "Evicting pod"
+        );
+
+        tokio::spawn(async move {
+            let state = {
+                let mut locked = states.lock().await;
+                locked.remove(&pod.uid).unwrap_or_default()
+            };
+
+            if let Err(e) = worker.terminate_pod(&pod, &state, grace_period).await {
+                error!(pod = %pod.pod_ref, error = %e, "Eviction: pod termination failed");
+            }
+
+            // Wait for concurrent sync tasks to drain (same pattern as delete_pod).
+            let drain_deadline = std::time::Instant::now() + Duration::from_secs(30);
+            loop {
+                let still_running = {
+                    let slots = sync_slots.lock().await;
+                    slots.get(&pod.uid).map(|s| s.running).unwrap_or(false)
+                };
+                if !still_running || std::time::Instant::now() >= drain_deadline {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+
+            worker
+                .cleanup_pod_containerd_by_uid(&pod.uid.0, &pod.pod_ref.to_string())
+                .await;
+
+            // Report final evicted status to API server.
+            if let Some(lifecycle_state) = pod_manager.status.get(&pod.uid)
+                && let Err(e) = reporter
+                    .report_pod_status(&pod.pod_ref, &pod.uid, &lifecycle_state)
+                    .await
+            {
+                warn!(pod = %pod.pod_ref, error = %e, "Eviction: failed to report final pod status");
+            }
+
+            // Force-delete the pod from the API server.
+            if let Err(e) = reporter.delete_pod(&pod.pod_ref, &pod.uid).await {
+                warn!(pod = %pod.pod_ref, error = %e, "Eviction: failed to force-delete pod");
+            }
+
+            info!(pod = %pod.pod_ref, "Eviction complete");
+        });
+    }
+
     /// Get current pod runtime states (for diagnostics / API).
     pub async fn pod_states_snapshot(&self) -> HashMap<PodUID, PodRuntimeState> {
         self.pod_states.lock().await.clone()
@@ -701,6 +799,44 @@ mod tests {
             received, POD_COUNT,
             "expected {} Reconcile events, got {} — some pods were not reconciled",
             POD_COUNT, received
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evict_pod_marks_failed_evicted() {
+        use kubelet_adapters::eviction::manager::{EvictionDecision, EvictionReason};
+        use kubelet_core::pod::lifecycle::PodPhase;
+
+        let (manager, pm, _rx, _dir) = make_manager().await;
+        let pod = make_pod("uid-evict-1", "pod-evict-1");
+        pm.upsert(pod.clone()).await.unwrap();
+        // Seed an initial status so the get() in evict_pod finds it.
+        pm.status.initialize(&pod);
+
+        let decision = EvictionDecision {
+            pod_uid: pod.uid.clone(),
+            pod_ref: pod.pod_ref.clone(),
+            reason: EvictionReason::MemoryPressure,
+            message: "The node was low on resource. Threshold capacity was exceeded.".to_string(),
+            grace_period: std::time::Duration::from_secs(0),
+        };
+
+        manager.evict_pod(decision).await;
+
+        // Status must be updated to Failed/Evicted synchronously (before terminate).
+        let state = pm.status.get(&pod.uid).expect("status must exist");
+        assert_eq!(state.phase, PodPhase::Failed);
+        assert_eq!(state.reason.as_deref(), Some("Evicted"));
+
+        use kubelet_core::pod::lifecycle::PodConditionType;
+        let disruption = state
+            .conditions
+            .iter()
+            .find(|c| c.condition_type == PodConditionType::DisruptionTarget)
+            .expect("DisruptionTarget condition must be set");
+        assert_eq!(
+            disruption.status,
+            kubelet_core::pod::lifecycle::ConditionStatus::True
         );
     }
 }

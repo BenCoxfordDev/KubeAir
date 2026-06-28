@@ -532,6 +532,27 @@ impl Kubelet {
             });
         }
 
+        // Spawn the eviction manager loop.  Every 10 seconds it samples node
+        // resource pressure and evicts pods when thresholds are exceeded,
+        // mirroring the Go kubelet eviction_manager goroutine.
+        {
+            let eviction_rm = runtime_manager.clone();
+            let eviction_pod_manager = self.pod_manager.clone();
+            let eviction_hard = self.config.eviction_hard.clone();
+            let eviction_soft = self.config.eviction_soft.clone();
+            let eviction_fs_path = self.config.root_dir.to_string_lossy().to_string();
+            tokio::spawn(async move {
+                run_eviction_loop(
+                    eviction_rm,
+                    eviction_pod_manager,
+                    &eviction_hard,
+                    &eviction_soft,
+                    &eviction_fs_path,
+                )
+                .await;
+            });
+        }
+
         let reconcile_pod_manager = self.pod_manager.clone();
         let reconcile_frequency = self.config.sync_frequency;
         let mut runtime_handle = tokio::spawn(async move {
@@ -739,6 +760,55 @@ fn kube_connect_mode_from_config(config: &KubeletConfig) -> KubeConnectMode {
         KubeConnectMode::InCluster
     } else {
         KubeConnectMode::Standalone
+    }
+}
+
+/// Periodically evaluate resource pressure and evict pods when thresholds are exceeded.
+///
+/// Mirrors the Go kubelet's `evictionManager.synchronize()` goroutine:
+///  - Runs every 10 seconds.
+///  - Collects node resource signals (memory, disk, PIDs).
+///  - Calls `EvictionManager::evaluate()` to rank and select eviction candidates.
+///  - For each decision, calls `RuntimeManager::evict_pod()` which marks the pod
+///    `Failed/Evicted` and terminates it.
+async fn run_eviction_loop(
+    runtime_manager: Arc<crate::runtime_manager::RuntimeManager>,
+    pod_manager: Arc<kubelet_core::pod::manager::PodManager>,
+    eviction_hard: &std::collections::HashMap<String, String>,
+    eviction_soft: &std::collections::HashMap<String, String>,
+    fs_path: &str,
+) {
+    use kubelet_adapters::eviction::NodeResources;
+    use kubelet_adapters::eviction::manager::EvictionManager;
+    use kubelet_adapters::eviction::manager::PodResourceUsage;
+    use kubelet_adapters::eviction::pressure::collect_signals;
+
+    let mut mgr = EvictionManager::new(eviction_hard, eviction_soft, None);
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        interval.tick().await;
+
+        let signals = collect_signals(fs_path, "/var/lib/containerd");
+        let resources = NodeResources {
+            available_memory_bytes: signals.memory_available_bytes,
+            total_memory_bytes: signals.memory_available_bytes + signals.nodefs_total_bytes,
+            available_disk_bytes: signals.nodefs_available_bytes,
+            total_disk_bytes: signals.nodefs_total_bytes,
+            available_pids: signals.pid_available,
+            total_pids: signals.pid_available,
+        };
+
+        let pods = pod_manager.list();
+        // Usage map is empty for now — the ranker falls back to 0 bytes per pod,
+        // which still correctly orders by QoS class (BestEffort first, Guaranteed last).
+        let usage = std::collections::HashMap::<_, PodResourceUsage>::new();
+
+        let decisions = mgr.evaluate(&resources, &pods, &usage);
+        for decision in decisions {
+            runtime_manager.evict_pod(decision).await;
+        }
     }
 }
 
