@@ -38,7 +38,7 @@ KubeAir has ~888 automated tests across four layers:
 
 | Layer       | Tests | Description                                    |
 | ----------- | ----- | ---------------------------------------------- |
-| Unit        | 662   | Per-crate logic tests inside `crates/`       |
+| Unit        | 662   | Per-crate logic tests inside`crates/`        |
 | Integration | 70    | Cross-crate behaviour and lifecycle flows      |
 | Conformance | 119   | Kubernetes spec compliance (in-process)        |
 | E2E         | 38    | Live cluster tests against a real kubeadm node |
@@ -49,7 +49,7 @@ E2E tests run against a real kubeadm cluster (Calico CNI, containerd) provisione
 
 | KubeAir Version | Kubernetes Version | Status |
 | --------------- | ------------------ | ------ |
-| `1.33.x`      | 1.33               | Active |
+| `1.35.x`      | 1.35               | Active |
 
 See [docs/development/releases.md](docs/development/releases.md) for the full compatibility and release policy.
 
