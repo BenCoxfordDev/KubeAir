@@ -341,7 +341,9 @@ impl PodWorker {
         }
 
         // Step 0b: Ensure declared pod volumes are mounted before container start.
-        if let Err(e) = self.ensure_pod_volumes(pod).await {
+        // Pass the sandbox IP so DownwardAPI volume files can expose status.podIP.
+        let pod_ip_for_volumes = state.sandbox_ip.as_deref();
+        if let Err(e) = self.ensure_pod_volumes(pod, pod_ip_for_volumes).await {
             error!(pod = %pod.pod_ref, error = %e, "Volume mount failed - pod will remain Pending");
             // Update pod condition to reflect volume mount failure
             if let Some(mut ls) = self.pod_manager.status.get(&pod.uid) {
@@ -1262,7 +1264,7 @@ impl PodWorker {
         }
     }
 
-    async fn ensure_pod_volumes(&self, pod: &PodSpec) -> Result<()> {
+    async fn ensure_pod_volumes(&self, pod: &PodSpec, pod_ip: Option<&str>) -> Result<()> {
         if pod.volumes.is_empty() {
             return Ok(());
         }
@@ -1336,7 +1338,7 @@ impl PodWorker {
                     "Writing DownwardAPI volume files"
                 );
                 for item in items {
-                    let value = resolve_downward_api_value(pod, item);
+                    let value = resolve_downward_api_value(pod, item, pod_ip);
                     debug!(
                         pod = %pod.pod_ref,
                         volume = %v.name,
@@ -1386,7 +1388,7 @@ impl PodWorker {
                 default_mode,
             } = &v.source
             {
-                self.write_projected_volume(pod, &v.name, sources, *default_mode)
+                self.write_projected_volume(pod, &v.name, sources, *default_mode, pod_ip)
                     .await
                     .map_err(|e| {
                         error!(
@@ -1634,6 +1636,7 @@ impl PodWorker {
         volume_name: &str,
         sources: &[kubelet_core::pod::ProjectedVolumeSource],
         default_mode: Option<i32>,
+        pod_ip: Option<&str>,
     ) -> Result<()> {
         use kubelet_core::pod::ProjectedVolumeSource;
 
@@ -1777,7 +1780,7 @@ impl PodWorker {
                 }
                 ProjectedVolumeSource::DownwardAPI { items } => {
                     for item in items {
-                        let value = resolve_downward_api_value(pod, item);
+                        let value = resolve_downward_api_value(pod, item, pod_ip);
                         // Skip writing empty values for field_ref items: an empty result
                         // means the pod spec isn't fully populated yet.
                         if value.is_empty() && item.field_ref.is_some() {
@@ -4121,7 +4124,16 @@ fn resolve_env_var_source(
             "metadata.uid" => pod.uid.0.clone(),
             "spec.nodeName" => pod.node_name.clone(),
             "spec.serviceAccountName" => pod.service_account_name.clone(),
-            "status.podIP" | "status.podIPs" => pod_ip.unwrap_or_default().to_string(),
+            "status.podIP" | "status.podIPs" => pod_ip
+                .filter(|ip| !ip.is_empty())
+                .map(|ip| ip.to_string())
+                .unwrap_or_else(|| {
+                    if pod.host_network {
+                        detect_node_internal_ip()
+                    } else {
+                        String::new()
+                    }
+                }),
             "status.hostIP" => detect_node_internal_ip(),
             // Delegate remaining paths (metadata.annotations['key'], metadata.labels['key'], etc.)
             _ => resolve_field_ref(pod, field_path),
@@ -4615,6 +4627,7 @@ async fn request_service_account_token(
 fn resolve_downward_api_value(
     pod: &PodSpec,
     item: &kubelet_core::pod::DownwardAPIVolumeFile,
+    pod_ip: Option<&str>,
 ) -> String {
     if let Some(ref_info) = &item.resource_field_ref {
         let container_name = ref_info.container_name.as_deref();
@@ -4683,7 +4696,7 @@ fn resolve_downward_api_value(
 
     // field_ref: pod metadata/spec fields
     if let Some(field) = &item.field_ref {
-        return resolve_field_ref(pod, field);
+        return resolve_field_ref_with_pod_ip(pod, field, pod_ip);
     }
     String::new()
 }
@@ -4736,7 +4749,17 @@ fn apply_resource_divisor(raw: i64, is_cpu: bool, divisor: &str) -> i64 {
 }
 
 /// Resolve a `fieldRef.fieldPath` expression against a pod spec.
+/// Resolve a fieldRef path to its string value.
+///
+/// For `status.podIP`/`status.podIPs`, use [`resolve_field_ref_with_pod_ip`]
+/// when the sandbox IP is known.
 fn resolve_field_ref(pod: &PodSpec, field: &str) -> String {
+    resolve_field_ref_with_pod_ip(pod, field, None)
+}
+
+/// Like [`resolve_field_ref`] but also accepts the pod's IP for `status.podIP`
+/// and `status.podIPs` fields.
+fn resolve_field_ref_with_pod_ip(pod: &PodSpec, field: &str, pod_ip: Option<&str>) -> String {
     // Handle metadata.labels['key'] and metadata.annotations['key']
     if let Some(key) = field
         .strip_prefix("metadata.labels['")
@@ -4775,8 +4798,21 @@ fn resolve_field_ref(pod: &PodSpec, field: &str) -> String {
         "metadata.uid" => pod.uid.0.clone(),
         "spec.nodeName" => pod.node_name.clone(),
         "spec.serviceAccountName" => pod.service_account_name.clone(),
-        // Pod IP and host IP are not available at volume-mount time; return empty.
-        "status.podIP" | "status.podIPs" | "status.hostIP" => String::new(),
+        // Host IP is the node's primary IP — available immediately.
+        "status.hostIP" => detect_node_internal_ip(),
+        // Pod IP comes from the sandbox — use the supplied value when available.
+        // For host-network pods the CRI returns no sandbox IP, so fall back
+        // to the node's own IP (pod shares the host network namespace).
+        "status.podIP" | "status.podIPs" => pod_ip
+            .filter(|ip| !ip.is_empty())
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| {
+                if pod.host_network {
+                    detect_node_internal_ip()
+                } else {
+                    String::new()
+                }
+            }),
         _ => String::new(),
     }
 }
@@ -6085,7 +6121,7 @@ mod tests {
             resource_field_ref: None,
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "my-pod");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "my-pod");
     }
 
     #[test]
@@ -6097,7 +6133,7 @@ mod tests {
             resource_field_ref: None,
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "default");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "default");
     }
 
     #[test]
@@ -6109,7 +6145,7 @@ mod tests {
             resource_field_ref: None,
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "uid-da-123");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "uid-da-123");
     }
 
     #[test]
@@ -6141,7 +6177,7 @@ mod tests {
             }),
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "134217728");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "134217728");
     }
 
     #[test]
@@ -6167,7 +6203,7 @@ mod tests {
             }),
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &limit_item), "2");
+        assert_eq!(resolve_downward_api_value(&pod, &limit_item, None), "2");
 
         let req_item = kubelet_core::pod::DownwardAPIVolumeFile {
             path: "cpu_request".to_string(),
@@ -6179,7 +6215,7 @@ mod tests {
             }),
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &req_item), "1");
+        assert_eq!(resolve_downward_api_value(&pod, &req_item, None), "1");
     }
 
     #[test]
@@ -6205,7 +6241,7 @@ mod tests {
             }),
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "67108864");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "67108864");
     }
 
     #[test]
@@ -6217,7 +6253,7 @@ mod tests {
             resource_field_ref: None,
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "");
     }
 
     #[tokio::test]
@@ -6354,7 +6390,7 @@ mod tests {
             mode: None,
         };
         // 256 MiB / 1Mi = 256
-        assert_eq!(resolve_downward_api_value(&pod, &item), "256");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "256");
     }
 
     #[test]
@@ -6378,7 +6414,7 @@ mod tests {
             }),
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "1500");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "1500");
     }
 
     // -- field_ref extension tests --------------------------------------------
@@ -6394,7 +6430,7 @@ mod tests {
             mode: None,
         };
         assert_eq!(
-            resolve_downward_api_value(&pod, &item),
+            resolve_downward_api_value(&pod, &item, None),
             "my-service-account"
         );
     }
@@ -6409,7 +6445,7 @@ mod tests {
             resource_field_ref: None,
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "frontend");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "frontend");
     }
 
     #[test]
@@ -6423,7 +6459,7 @@ mod tests {
             resource_field_ref: None,
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "us-west-2");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "us-west-2");
     }
 
     #[test]
@@ -6435,7 +6471,90 @@ mod tests {
             resource_field_ref: None,
             mode: None,
         };
-        assert_eq!(resolve_downward_api_value(&pod, &item), "");
+        assert_eq!(resolve_downward_api_value(&pod, &item, None), "");
+    }
+
+    // -- status.hostIP / status.podIP in downward API volume files ---------------
+
+    #[test]
+    fn test_resolve_field_ref_status_host_ip_returns_non_empty() {
+        // status.hostIP must resolve to the node's IP (detect_node_internal_ip),
+        // never to an empty string. The exact value is env-dependent so we just
+        // assert it is non-empty.
+        let pod = make_pod("uid-hip", "pod-hip");
+        let result = resolve_field_ref_with_pod_ip(&pod, "status.hostIP", None);
+        // On CI or macOS `detect_node_internal_ip` falls back to 127.0.0.1.
+        assert!(
+            !result.is_empty(),
+            "status.hostIP must not be empty; got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_resolve_field_ref_status_pod_ip_with_sandbox_ip() {
+        // When a pod_ip is supplied (sandbox assigned), status.podIP must reflect it.
+        let pod = make_pod("uid-pip", "pod-pip");
+        let result = resolve_field_ref_with_pod_ip(&pod, "status.podIP", Some("10.0.0.5"));
+        assert_eq!(result, "10.0.0.5");
+    }
+
+    #[test]
+    fn test_resolve_field_ref_status_pod_ips_with_sandbox_ip() {
+        let pod = make_pod("uid-pips", "pod-pips");
+        let result = resolve_field_ref_with_pod_ip(&pod, "status.podIPs", Some("10.0.0.6"));
+        assert_eq!(result, "10.0.0.6");
+    }
+
+    #[test]
+    fn test_resolve_field_ref_status_pod_ip_no_sandbox_returns_empty() {
+        // Before the sandbox is ready, pod_ip is None; file should be empty (not
+        // written by ensure_pod_volumes in that case).
+        let pod = make_pod("uid-pip-ns", "pod-pip-ns");
+        let result = resolve_field_ref_with_pod_ip(&pod, "status.podIP", None);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_resolve_field_ref_status_pod_ip_host_network_falls_back_to_host_ip() {
+        // For host-network pods the CRI returns no sandbox IP, so status.podIP
+        // should resolve to the node's own IP (same as status.hostIP).
+        let mut pod = make_pod("uid-hn", "pod-hn");
+        pod.host_network = true;
+        let result = resolve_field_ref_with_pod_ip(&pod, "status.podIP", None);
+        assert!(
+            !result.is_empty(),
+            "status.podIP for host-network pod must not be empty"
+        );
+    }
+
+    #[test]
+    fn test_resolve_downward_api_value_host_ip_non_empty() {
+        let pod = make_pod("uid-da-hip", "pod-da-hip");
+        let item = kubelet_core::pod::DownwardAPIVolumeFile {
+            path: "host-ip".to_string(),
+            field_ref: Some("status.hostIP".to_string()),
+            resource_field_ref: None,
+            mode: None,
+        };
+        let result = resolve_downward_api_value(&pod, &item, None);
+        assert!(
+            !result.is_empty(),
+            "DownwardAPI status.hostIP volume file must not be empty"
+        );
+    }
+
+    #[test]
+    fn test_resolve_downward_api_value_pod_ip_with_sandbox() {
+        let pod = make_pod("uid-da-pip", "pod-da-pip");
+        let item = kubelet_core::pod::DownwardAPIVolumeFile {
+            path: "pod-ip".to_string(),
+            field_ref: Some("status.podIP".to_string()),
+            resource_field_ref: None,
+            mode: None,
+        };
+        let result = resolve_downward_api_value(&pod, &item, Some("192.168.1.50"));
+        assert_eq!(result, "192.168.1.50");
     }
 
     // -- defaultMode tests ----------------------------------------------------
@@ -7132,7 +7251,7 @@ mod tests {
             resource_field_ref: None,
             mode: None,
         };
-        let value = resolve_downward_api_value(&pod, &item);
+        let value = resolve_downward_api_value(&pod, &item, None);
         assert_eq!(value, "", "empty pod name should resolve to empty string");
         // This is the condition our defensive guard checks before writing files
         assert!(
@@ -7150,7 +7269,7 @@ mod tests {
             resource_field_ref: None,
             mode: None,
         };
-        let value = resolve_downward_api_value(&pod, &item);
+        let value = resolve_downward_api_value(&pod, &item, None);
         assert_eq!(value, "my-pod");
         // Non-empty value should NOT trigger the defensive skip
         assert!(!value.is_empty(), "non-empty pod name must not be skipped");
