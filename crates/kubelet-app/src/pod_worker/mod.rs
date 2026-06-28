@@ -2370,12 +2370,15 @@ impl PodWorker {
         }
 
         // Add kubelet-managed /etc/hosts bind-mount (handles HostAliases).
-        // Skip when the container already has an explicit /etc/hosts volumeMount.
+        // Skip when the container already has an explicit /etc/hosts volumeMount,
+        // or when the pod uses the host network namespace (hostNetwork=true) — in
+        // that case the container shares the node's /etc/hosts and kubelet must
+        // not overwrite it (upstream kubelet behaviour).
         let has_custom_hosts_mount = resolved_container
             .volume_mounts
             .iter()
             .any(|m| m.mount_path == "/etc/hosts");
-        if !has_custom_hosts_mount {
+        if !has_custom_hosts_mount && !pod.host_network {
             match self.write_etc_hosts_file(pod, state.sandbox_ip.as_deref()) {
                 Ok(hosts_path) => {
                     resolved_container
