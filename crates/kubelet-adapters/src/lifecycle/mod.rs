@@ -258,7 +258,10 @@ mod tests {
         let cid = ContainerID("fake".to_string());
         let executor = LifecycleHookExecutor::new(Duration::from_millis(200));
         let result = executor.execute(&handler, &cid, "app", &runtime).await;
-        assert!(result.is_err(), "Expected error when no server is listening");
+        assert!(
+            result.is_err(),
+            "Expected error when no server is listening"
+        );
         let err_msg = result.unwrap_err().to_string().to_lowercase();
         // Must not fail with a TLS certificate verification error
         assert!(

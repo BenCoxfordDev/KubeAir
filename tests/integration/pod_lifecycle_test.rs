@@ -887,7 +887,9 @@ async fn integ_https_lifecycle_hook_skips_tls_verification() {
     let runtime = MockRuntime::new();
     let cid = ContainerID("fake-container".to_string());
     let executor = LifecycleHookExecutor::new(Duration::from_millis(300));
-    let result = executor.execute(&handler, &cid, "my-container", &runtime).await;
+    let result = executor
+        .execute(&handler, &cid, "my-container", &runtime)
+        .await;
 
     // Must fail (no server) but NOT because of a certificate error
     assert!(result.is_err(), "Expected error — no server on port 19995");
@@ -930,6 +932,12 @@ async fn integ_http_lifecycle_hook_connects_to_plain_server() {
     let runtime = MockRuntime::new();
     let cid = ContainerID("fake-container".to_string());
     let executor = LifecycleHookExecutor::new(Duration::from_secs(5));
-    let result = executor.execute(&handler, &cid, "my-container", &runtime).await;
-    assert!(result.is_ok(), "Plain HTTP hook should succeed: {:?}", result);
+    let result = executor
+        .execute(&handler, &cid, "my-container", &runtime)
+        .await;
+    assert!(
+        result.is_ok(),
+        "Plain HTTP hook should succeed: {:?}",
+        result
+    );
 }
