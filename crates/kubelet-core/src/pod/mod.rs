@@ -182,6 +182,9 @@ pub enum LifecycleHandler {
         port: u16,
         host: Option<String>,
     },
+    Sleep {
+        seconds: u64,
+    },
 }
 
 /// EnvFrom -- inject all keys from a ConfigMap or Secret as env vars.

@@ -24,12 +24,18 @@ limitations under the License.
 fn main() {
     // CARGO_MANIFEST_DIR = <workspace>/crates/kubelet-app
     // .version lives two levels up at <workspace>/.version
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR is always set by Cargo");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is always set by Cargo");
     let version_path = std::path::Path::new(&manifest_dir).join("../../.version");
 
     let version = std::fs::read_to_string(&version_path)
-        .unwrap_or_else(|e| panic!("Failed to read .version at {}: {}", version_path.display(), e))
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to read .version at {}: {}",
+                version_path.display(),
+                e
+            )
+        })
         .trim()
         .to_string();
 
