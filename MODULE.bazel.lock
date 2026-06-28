@@ -640,7 +640,7 @@
           "REPO_MAPPING:rules_rust+,rules_cc rules_cc+",
           "REPO_MAPPING:rules_rust+,rules_rust rules_rust+",
           "FILE:@@//Cargo.lock b29765904ac5d047bcf56145672e3a9737f7b24832a7a35d203ea8a196a7456a",
-          "FILE:@@//Cargo.toml 54288fffb5cb473dd4b8518cb0ea2294cce97d5c0800ba54d4e558e6eca3efc3",
+          "FILE:@@//Cargo.toml eec5c4767eb3f1bef2efe0a24f71406ebf4e36cf3ac7b9b243dd1cf422a33304",
           "FILE:@@//crates/kubelet-core/Cargo.toml acbcbf90ee46dc90d2d7920629bdd8db4a0909228214faf032810b1e1037b225",
           "FILE:@@//crates/kubelet-ports/Cargo.toml 169140572950df1f84e1aac4f1f2b21d0f444267756a65347bea35c0e39602ea",
           "FILE:@@//crates/kubelet-adapters/Cargo.toml 507f5c97e70b000aacc5b815737321b94a7261fceaf483406adefbe9f5812182",
