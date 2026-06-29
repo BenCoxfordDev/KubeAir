@@ -103,6 +103,10 @@ pub struct PodLifecycleState {
     pub pod_ip: Option<String>,
     pub host_ip: Option<String>,
     pub nominated_node_name: Option<String>,
+    /// The last generation of the pod spec that the kubelet has processed.
+    /// Reported as `status.observedGeneration` to unblock controllers and
+    /// conformance tests that wait for observedGeneration >= 1.
+    pub observed_generation: Option<i64>,
 }
 
 impl Default for PodLifecycleState {
@@ -118,6 +122,7 @@ impl Default for PodLifecycleState {
             pod_ip: None,
             host_ip: None,
             nominated_node_name: None,
+            observed_generation: None,
         }
     }
 }

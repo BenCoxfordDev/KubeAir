@@ -412,6 +412,7 @@ impl UrlPodSource {
             hostname: None,
             subdomain: None,
             observed_start_time: None,
+            generation: None,
         })
     }
 }
@@ -783,6 +784,7 @@ impl PodSource for UrlPodSource {
                                         hostname: None,
                                         subdomain: None,
                                         observed_start_time: None,
+                                        generation: None,
                                     };
                                     if tx
                                         .send(PodUpdate {

@@ -51,6 +51,7 @@ fn test_last_termination_state_preserved_after_restart() {
         pod_ip: Some("10.0.0.1".to_string()),
         host_ip: Some("192.168.1.1".to_string()),
         nominated_node_name: None,
+        observed_generation: None,
     };
 
     // Simulate container restart - previous state should be preserved as last_state

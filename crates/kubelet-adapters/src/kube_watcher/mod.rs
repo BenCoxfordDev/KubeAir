@@ -424,6 +424,7 @@ pub fn pod_spec_from_map(map: &serde_json::Value, node_name: &str) -> Option<Pod
             })
             .unwrap_or_default(),
         observed_start_time: None,
+        generation: metadata.get("generation").and_then(|v| v.as_i64()),
     })
 }
 
@@ -1312,6 +1313,7 @@ mod tests {
             hostname: None,
             subdomain: None,
             observed_start_time: None,
+            generation: None,
         };
 
         let source = SimulatedApiPodSource::new("node1", vec![pod], Duration::from_secs(3600));
@@ -1388,5 +1390,36 @@ mod tests {
         });
         let spec = pod_spec_from_map(&json, "node1").unwrap();
         assert!(spec.image_pull_secrets.is_empty());
+    }
+
+    #[test]
+    fn test_pod_spec_from_map_propagates_generation() {
+        let json = serde_json::json!({
+            "metadata": {
+                "name": "pod-gen",
+                "namespace": "default",
+                "uid": "uid-gen-1",
+                "generation": 7
+            },
+            "spec": {
+                "containers": [{ "name": "app", "image": "nginx:1.25" }],
+                "nodeName": "node1"
+            }
+        });
+        let spec = pod_spec_from_map(&json, "node1").unwrap();
+        assert_eq!(spec.generation, Some(7));
+    }
+
+    #[test]
+    fn test_pod_spec_from_map_generation_none_when_missing() {
+        let json = serde_json::json!({
+            "metadata": { "name": "pod-nogen", "namespace": "default", "uid": "uid-nogen" },
+            "spec": {
+                "containers": [{ "name": "app", "image": "nginx:1.25" }],
+                "nodeName": "node1"
+            }
+        });
+        let spec = pod_spec_from_map(&json, "node1").unwrap();
+        assert_eq!(spec.generation, None);
     }
 }

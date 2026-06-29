@@ -245,6 +245,7 @@ impl NodeReporter for KubeNodeReporter {
         let pod_ip = state.pod_ip.clone();
         let host_ip = state.host_ip.clone();
         let reason = state.reason.clone();
+        let observed_generation = state.observed_generation;
 
         let pod_ips = pod_ip
             .clone()
@@ -281,6 +282,7 @@ impl NodeReporter for KubeNodeReporter {
                     "podIPs": pod_ips,
                     "hostIP": host_ip,
                     "hostIPs": host_ips,
+                    "observedGeneration": observed_generation,
                 }
             })),
         )
@@ -1096,6 +1098,7 @@ fn pod_to_spec(pod: &Pod, node_name: &str) -> Option<PodSpec> {
             .as_deref()
             .filter(|s| !s.is_empty())
             .map(str::to_string),
+        generation: pod.metadata.generation,
         ..Default::default()
     })
 }
@@ -2089,5 +2092,55 @@ mod tests {
         assert!(matches!(dns.policy, kubelet_core::pod::DnsPolicy::None));
         assert_eq!(dns.nameservers, vec!["1.1.1.1", "8.8.8.8"]);
         assert_eq!(dns.searches, vec!["example.com"]);
+    }
+
+    #[test]
+    fn test_pod_to_spec_propagates_metadata_generation() {
+        let pod = k8s_openapi::api::core::v1::Pod {
+            metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
+                name: Some("test-pod".to_string()),
+                namespace: Some("default".to_string()),
+                uid: Some("abc-123".to_string()),
+                generation: Some(3),
+                ..Default::default()
+            },
+            spec: Some(k8s_openapi::api::core::v1::PodSpec {
+                containers: vec![k8s_openapi::api::core::v1::Container {
+                    name: "c".to_string(),
+                    image: Some("nginx:latest".to_string()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let spec = pod_to_spec(&pod, "node1").unwrap();
+        assert_eq!(spec.generation, Some(3));
+    }
+
+    #[test]
+    fn test_pod_to_spec_generation_none_when_missing() {
+        let pod = k8s_openapi::api::core::v1::Pod {
+            metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
+                name: Some("test-pod".to_string()),
+                namespace: Some("default".to_string()),
+                uid: Some("abc-123".to_string()),
+                generation: None,
+                ..Default::default()
+            },
+            spec: Some(k8s_openapi::api::core::v1::PodSpec {
+                containers: vec![k8s_openapi::api::core::v1::Container {
+                    name: "c".to_string(),
+                    image: Some("nginx:latest".to_string()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let spec = pod_to_spec(&pod, "node1").unwrap();
+        assert_eq!(spec.generation, None);
     }
 }

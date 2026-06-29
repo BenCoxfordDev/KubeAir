@@ -87,6 +87,7 @@ fn pod(uid: &str, name: &str, namespace: &str) -> PodSpec {
         hostname: None,
         subdomain: None,
         observed_start_time: None,
+        generation: None,
     }
 }
 
