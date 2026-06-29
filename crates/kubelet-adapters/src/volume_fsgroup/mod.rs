@@ -172,7 +172,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         // Write a file to the dir.
         std::fs::write(dir.path().join("file.txt"), b"hello").unwrap();
-        let result = apply_fs_group(dir.path(), 2000, &FsGroupPolicy::File);
+        // Use the current process GID so lchown succeeds without root privileges.
+        #[cfg(unix)]
+        let gid = unsafe { libc::getegid() };
+        #[cfg(not(unix))]
+        let gid = 0u32;
+        let result = apply_fs_group(dir.path(), gid, &FsGroupPolicy::File);
         assert!(result.is_ok());
     }
 

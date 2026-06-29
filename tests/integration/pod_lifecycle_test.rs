@@ -41,8 +41,8 @@ use kubelet_core::node::{NodeAddress, NodeAddressType, NodeConditionStatus, Node
 use kubelet_core::pod::lifecycle::PodPhase;
 use kubelet_core::pod::manager::PodManager;
 use kubelet_core::pod::{
-    ContainerSpec, ImagePullPolicy, PodOperation, PodSpec, PodUpdate, ResourceRequirements,
-    RestartPolicy, VolumeSource, VolumeSpec,
+    ContainerPort, ContainerSpec, ImagePullPolicy, PodOperation, PodSpec, PodUpdate, Protocol,
+    ResourceRequirements, RestartPolicy, VolumeSource, VolumeSpec,
 };
 use kubelet_core::types::{PodRef, PodUID};
 use kubelet_ports::driven::pod_source::PodSource;
@@ -1157,4 +1157,108 @@ async fn integ_sidecar_liveness_probe_is_registered() {
         state.probe_registered.contains_key("sidecar-live"),
         "liveness probe for sidecar must be registered after sync"
     );
+}
+
+/// Regression test: a second pod requesting a hostPort already held by a
+/// running pod must be rejected immediately with phase=Failed and
+/// reason=HostPortConflict, without ever starting any containers.
+///
+/// This mirrors the upstream kubelet's GeneralPredicates admission check
+/// (pkg/kubelet/lifecycle/predicate.go).  StatefulSet relies on the Failed
+/// status to detect that ss-0 cannot start and recreate it once the
+/// conflicting pod is gone.
+#[tokio::test]
+async fn integ_host_port_conflict_rejected() {
+    use kubelet_adapters::device_manager::DeviceManager;
+    use kubelet_adapters::sandbox_builder::NodeDnsConfig;
+    use kubelet_app::runtime_manager::RuntimeManager;
+    use kubelet_core::pod::lifecycle::{ConditionStatus, PodConditionType, PodPhase};
+
+    let (tx, _rx) = mpsc::channel(1000);
+    let pm = Arc::new(PodManager::new(tx));
+    let rt = Arc::new(MockRuntime::new());
+    let dir = TempDir::new().unwrap();
+    let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
+    let cg = Arc::new(CgroupManager::new("/sys/fs/cgroup", true));
+    let vm = Arc::new(LocalVolumeManager::new(dir.path()));
+    let reporter = Arc::new(InMemoryNodeReporter::new());
+    let manager = RuntimeManager::new(
+        pm.clone(),
+        rt.clone(),
+        rt.clone(),
+        vm,
+        reporter,
+        cm,
+        cg,
+        Arc::new(HashMap::new()),
+        "cgroupfs",
+        dir.path(),
+        "/tmp",
+        "registry.k8s.io/pause:3.9",
+        None,
+        "",
+        NodeDnsConfig::default(),
+        Arc::new(DeviceManager::new("/tmp")),
+    );
+
+    // Build a pod that holds host port 18181.
+    let mut first = pod("integ-hp-uid-1", "integ-hp-pod-1", "nginx");
+    first.containers[0].ports = vec![ContainerPort {
+        name: None,
+        container_port: 80,
+        host_port: Some(18181),
+        protocol: Protocol::TCP,
+        host_ip: None,
+    }];
+    pm.upsert(first.clone()).await.unwrap();
+    pm.status.initialize(&first);
+    manager
+        .handle_update(PodUpdate {
+            pod: first.clone(),
+            op: PodOperation::Add,
+        })
+        .await;
+
+    // Second pod requests the same host port.
+    let mut second = pod("integ-hp-uid-2", "integ-hp-pod-2", "nginx");
+    second.containers[0].ports = vec![ContainerPort {
+        name: None,
+        container_port: 80,
+        host_port: Some(18181),
+        protocol: Protocol::TCP,
+        host_ip: None,
+    }];
+    pm.upsert(second.clone()).await.unwrap();
+    pm.status.initialize(&second);
+    manager
+        .handle_update(PodUpdate {
+            pod: second.clone(),
+            op: PodOperation::Add,
+        })
+        .await;
+
+    // Rejection is synchronous — phase must be Failed immediately.
+    let state = pm.status.get(&second.uid).expect("status must exist");
+    assert_eq!(
+        state.phase,
+        PodPhase::Failed,
+        "conflicting pod must be Failed"
+    );
+    assert_eq!(
+        state.reason.as_deref(),
+        Some("HostPortConflict"),
+        "reason must be HostPortConflict"
+    );
+
+    let sched = state
+        .conditions
+        .iter()
+        .find(|c| c.condition_type == PodConditionType::PodScheduled)
+        .expect("PodScheduled condition must be present");
+    assert_eq!(
+        sched.status,
+        ConditionStatus::False,
+        "PodScheduled must be False for rejected pod"
+    );
+    assert_eq!(sched.reason.as_deref(), Some("Unschedulable"));
 }
