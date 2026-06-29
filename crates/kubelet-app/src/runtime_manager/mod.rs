@@ -1027,8 +1027,10 @@ mod tests {
         // An existing pod that already Failed must not block the incoming pod.
         let terminal = make_pod_with_host_port("uid-hp-term", "pod-hp-term", 7781);
         pm.upsert(terminal.clone()).await.unwrap();
-        let mut ls = PodLifecycleState::default();
-        ls.phase = PodPhase::Failed;
+        let ls = PodLifecycleState {
+            phase: PodPhase::Failed,
+            ..Default::default()
+        };
         pm.status.set(terminal.uid.clone(), ls);
 
         let incoming = make_pod_with_host_port("uid-hp-new", "pod-hp-new", 7781);
