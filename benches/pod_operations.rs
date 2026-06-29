@@ -100,6 +100,7 @@ fn running_status(name: &str) -> ContainerStatus {
         image_id: "sha256:abc".to_string(),
         container_id: Some("ctr://abc".to_string()),
         started: Some(true),
+        resources: None,
     }
 }
 
@@ -121,6 +122,7 @@ fn terminated_status(name: &str, exit_code: i32) -> ContainerStatus {
         image_id: "sha256:abc".to_string(),
         container_id: None,
         started: Some(false),
+        resources: None,
     }
 }
 

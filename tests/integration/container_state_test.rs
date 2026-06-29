@@ -44,6 +44,7 @@ fn test_last_termination_state_preserved_after_restart() {
             image_id: "sha256:abc123".to_string(),
             container_id: Some("containerd://old-id".to_string()),
             started: Some(false),
+            resources: None,
         }],
         init_container_statuses: vec![],
         ephemeral_container_statuses: vec![],
@@ -68,6 +69,7 @@ fn test_last_termination_state_preserved_after_restart() {
         image_id: "sha256:abc123".to_string(),
         container_id: Some("containerd://new-id".to_string()),
         started: Some(true),
+        resources: None,
     };
 
     // Verify last_state is populated
@@ -101,6 +103,7 @@ fn test_container_state_transitions_from_running_to_terminated() {
         image_id: "sha256:abc123".to_string(),
         container_id: Some("containerd://id123".to_string()),
         started: Some(true),
+        resources: None,
     };
 
     // Container exits
@@ -142,6 +145,7 @@ fn test_restart_count_increments_correctly() {
         image_id: "sha256:abc123".to_string(),
         container_id: Some("containerd://id123".to_string()),
         started: Some(false),
+        resources: None,
     };
 
     // Simulate restart
@@ -178,6 +182,7 @@ fn test_multiple_restarts_preserve_last_state() {
         image_id: "sha256:abc123".to_string(),
         container_id: Some("containerd://id123".to_string()),
         started: Some(true),
+        resources: None,
     };
 
     // First crash
@@ -254,6 +259,7 @@ fn test_container_state_waiting_for_image_pull() {
         image_id: "".to_string(),
         container_id: None,
         started: Some(false),
+        resources: None,
     };
 
     assert!(

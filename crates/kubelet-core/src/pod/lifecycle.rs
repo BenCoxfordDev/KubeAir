@@ -86,6 +86,10 @@ pub struct ContainerStatus {
     pub image_id: String,
     pub container_id: Option<String>,
     pub started: Option<bool>,
+    /// The resource requests/limits for this container. Included in the API
+    /// status so that InPlace resize tests can read `containerStatuses[x].resources`
+    /// without a nil-pointer panic.
+    pub resources: Option<crate::pod::ResourceRequirements>,
 }
 
 /// Full pod lifecycle status tracked internally by the kubelet.
@@ -237,6 +241,7 @@ mod tests {
             image_id: "sha256:abc".to_string(),
             container_id: Some("ctr://abc123".to_string()),
             started: Some(true),
+            resources: None,
         }
     }
 
@@ -262,6 +267,7 @@ mod tests {
             image_id: "sha256:abc".to_string(),
             container_id: None,
             started: Some(false),
+            resources: None,
         }
     }
 
