@@ -728,6 +728,27 @@ impl PodWorker {
                             }
                             return PodSyncResult::Terminated;
                         }
+                        Ok(Some(s))
+                            if s.state == RuntimeContainerState::Exited
+                                && s.exit_code != Some(0) =>
+                        {
+                            // Init container failed and pod will restart (RestartPolicy != Never).
+                            // Snapshot the Terminated state before restarting so that
+                            // update_pod_status can populate lastTerminationState even
+                            // after the container transitions back to Running/Waiting.
+                            let exit_code = s.exit_code.unwrap_or(-1);
+                            state.last_terminated_states.insert(
+                                init_ctr.name.clone(),
+                                ContainerState::Terminated {
+                                    exit_code,
+                                    reason: "Error".to_string(),
+                                    message: None,
+                                    started_at: s.started_at.unwrap_or_else(Utc::now),
+                                    finished_at: s.finished_at.unwrap_or_else(Utc::now),
+                                },
+                            );
+                            // fall through to restart
+                        }
                         _ => {} // fall through to restart
                     }
                 }
@@ -3127,18 +3148,27 @@ impl PodWorker {
                 .unwrap_or(0)
                 > 0
             {
-                ls.init_container_statuses
-                    .iter()
-                    .find(|s| s.name == init_ctr.name)
-                    .and_then(|prev| match &prev.state {
-                        ContainerState::Terminated { .. } => Some(prev.state.clone()),
-                        ContainerState::Running { .. }
-                            if matches!(&ctr_state, ContainerState::Running { .. }) =>
-                        {
-                            None
-                        }
-                        ContainerState::Running { .. } => Some(prev.state.clone()),
-                        _ => None,
+                // Prefer the in-memory snapshot captured just before restart — it
+                // remains accurate even after the container transitions back to Running/Waiting.
+                state
+                    .last_terminated_states
+                    .get(&init_ctr.name)
+                    .cloned()
+                    .or_else(|| {
+                        // Fall back to the previous API snapshot.
+                        ls.init_container_statuses
+                            .iter()
+                            .find(|s| s.name == init_ctr.name)
+                            .and_then(|prev| match &prev.state {
+                                ContainerState::Terminated { .. } => Some(prev.state.clone()),
+                                ContainerState::Running { .. }
+                                    if matches!(&ctr_state, ContainerState::Running { .. }) =>
+                                {
+                                    None
+                                }
+                                ContainerState::Running { .. } => Some(prev.state.clone()),
+                                _ => None,
+                            })
                     })
             } else {
                 None
@@ -8655,6 +8685,103 @@ mod tests {
             "app container must be Waiting while init containers are still running, \
              got {:?}",
             app_status.state
+        );
+    }
+
+    // -- init container lastTerminationState ----------------------------------
+
+    /// When a failing init container has been restarted (restart_count > 0) AND
+    /// a `last_terminated_states` snapshot was captured before the restart,
+    /// `update_pod_status` must expose that snapshot as `lastTerminationState`
+    /// in the init container status.
+    ///
+    /// This is required for the `[sig-node] InitContainer` conformance test
+    /// "should not start app containers if init containers fail on a
+    /// RestartAlways pod" (init_container.go:440) which watches for
+    /// `status.LastTerminationState.Terminated != nil` before declaring success.
+    #[tokio::test]
+    async fn test_update_pod_status_init_container_has_last_termination_state() {
+        use chrono::Utc;
+        use kubelet_core::pod::lifecycle::ContainerState;
+
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-init-lt-1", "pod-init-lt-1");
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-fail".to_string(),
+            image: "busybox:latest".to_string(),
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        // Simulate: init container was started once (restart_count == 1) and
+        // exited non-zero.  sync_pod snapshots the state into last_terminated_states.
+        state.restart_counts.insert("init-fail".to_string(), 1);
+        let terminated = ContainerState::Terminated {
+            exit_code: 1,
+            reason: "Error".to_string(),
+            message: None,
+            started_at: Utc::now(),
+            finished_at: Utc::now(),
+        };
+        state
+            .last_terminated_states
+            .insert("init-fail".to_string(), terminated.clone());
+
+        worker.update_pod_status(&pod, &state).await;
+
+        let ls = pm.status.get(&pod.uid).unwrap();
+        let init_status = ls
+            .init_container_statuses
+            .iter()
+            .find(|s| s.name == "init-fail")
+            .expect("init container status must be present");
+
+        assert!(
+            init_status.last_state.is_some(),
+            "lastTerminationState must be Some when restart_count > 0 and \
+             last_terminated_states contains a snapshot"
+        );
+        assert!(
+            matches!(
+                init_status.last_state,
+                Some(ContainerState::Terminated { exit_code: 1, .. })
+            ),
+            "lastTerminationState must reflect the captured Terminated state, \
+             got {:?}",
+            init_status.last_state
+        );
+    }
+
+    /// When restart_count == 0 (init container never restarted), `lastTerminationState`
+    /// must be `None`.
+    #[tokio::test]
+    async fn test_update_pod_status_init_container_no_last_state_on_first_run() {
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-init-lt-2", "pod-init-lt-2");
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-once".to_string(),
+            image: "busybox:latest".to_string(),
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        // restart_count == 0: init container ran once, no restarts yet.
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let ls = pm.status.get(&pod.uid).unwrap();
+        let init_status = ls
+            .init_container_statuses
+            .iter()
+            .find(|s| s.name == "init-once")
+            .expect("init container status must be present");
+
+        assert!(
+            init_status.last_state.is_none(),
+            "lastTerminationState must be None on first run (no restarts), \
+             got {:?}",
+            init_status.last_state
         );
     }
 }
