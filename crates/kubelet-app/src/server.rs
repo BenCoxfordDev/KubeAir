@@ -40,9 +40,9 @@ use crate::metrics::{
     gather_metrics, record_container_metrics,
 };
 use crate::streaming::{
-    LogQuery, PortForwardQuery, StreamState, attach_handler_inner, exec_handler_inner, log_handler,
-    log_websocket_handler, parse_exec_query, port_forward_handler, spdy_attach_handler_inner,
-    spdy_exec_handler_inner, spdy_port_forward_handler,
+    LogQuery, PortForwardQuery, StreamState, WsStreamParams, attach_handler_inner,
+    exec_handler_inner, log_handler, log_websocket_handler, parse_exec_query, port_forward_handler,
+    spdy_attach_handler_inner, spdy_exec_handler_inner, spdy_port_forward_handler,
 };
 use kubelet_core::container::ContainerID;
 use kubelet_core::pod::manager::PodManager;
@@ -410,12 +410,14 @@ async fn exec_ws_handler(
         .map(|c| c.0.clone());
     exec_handler_inner(
         ws,
-        ns,
-        pod_name,
-        query,
-        headers,
+        WsStreamParams {
+            ns,
+            pod_name,
+            query,
+            headers,
+            cert_cn,
+        },
         state.to_stream_state(),
-        cert_cn,
     )
     .await
 }
@@ -456,12 +458,14 @@ async fn attach_ws_handler(
         .map(|c| c.0.clone());
     attach_handler_inner(
         ws,
-        ns,
-        pod_name,
-        query,
-        headers,
+        WsStreamParams {
+            ns,
+            pod_name,
+            query,
+            headers,
+            cert_cn,
+        },
         state.to_stream_state(),
-        cert_cn,
     )
     .await
 }
@@ -670,12 +674,14 @@ async fn kubelet_exec_handler(
         .map(|c| c.0.clone());
     exec_handler_inner(
         ws,
-        ns,
-        pod_name,
-        query,
-        headers,
+        WsStreamParams {
+            ns,
+            pod_name,
+            query,
+            headers,
+            cert_cn,
+        },
         state.to_stream_state(),
-        cert_cn,
     )
     .await
 }
@@ -723,12 +729,14 @@ async fn kubelet_attach_handler(
         .map(|c| c.0.clone());
     attach_handler_inner(
         ws,
-        ns,
-        pod_name,
-        query,
-        headers,
+        WsStreamParams {
+            ns,
+            pod_name,
+            query,
+            headers,
+            cert_cn,
+        },
         state.to_stream_state(),
-        cert_cn,
     )
     .await
 }

@@ -51,7 +51,7 @@ use kubelet_ports::driven::container_runtime::{
     ContainerRuntime, CreateContainerConfig, CreateSandboxConfig, DeviceMount, DevicePluginMount,
     ImageManager, ImagePullSecret, LinuxContainerSecurity, SandboxState, SandboxStatus,
 };
-use kubelet_ports::driven::node_reporter::NodeReporter;
+use kubelet_ports::driven::node_reporter::{ContainerEvent, NodeReporter};
 use kubelet_ports::driven::storage::{MountRequest, UnmountRequest, VolumeManager};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -441,9 +441,14 @@ impl PodWorker {
                         &pod.pod_ref,
                         &pod.uid,
                         &container.name,
-                        "Warning",
-                        "Failed",
-                        &format!("Failed to pull image \"{}\": {}", container.image, e),
+                        ContainerEvent {
+                            event_type: "Warning",
+                            reason: "Failed",
+                            message: &format!(
+                                "Failed to pull image \"{}\": {}",
+                                container.image, e
+                            ),
+                        },
                     )
                     .await;
 
@@ -2695,9 +2700,11 @@ impl PodWorker {
                 &pod.pod_ref,
                 &pod.uid,
                 &ctr.name,
-                "Normal",
-                "Started",
-                &format!("Started container {}", ctr.name),
+                ContainerEvent {
+                    event_type: "Normal",
+                    reason: "Started",
+                    message: &format!("Started container {}", ctr.name),
+                },
             )
             .await;
 
@@ -5186,12 +5193,14 @@ async fn spawn_liveness_probe(
                     &pod_ref,
                     &pod_uid,
                     &container_name,
-                    "Normal",
-                    "Killing",
-                    &format!(
-                        "Container {} failed liveness probe; restarting",
-                        container_name
-                    ),
+                    ContainerEvent {
+                        event_type: "Normal",
+                        reason: "Killing",
+                        message: &format!(
+                            "Container {} failed liveness probe; restarting",
+                            container_name
+                        ),
+                    },
                 )
                 .await;
             // Stop the container with 0 grace period - pod worker will detect the

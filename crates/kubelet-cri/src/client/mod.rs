@@ -1131,30 +1131,35 @@ impl ImageManager for ContainerdClient {
 
 // -- CRI UpdateContainerResources (called by CPU/Memory Manager) ---------------
 
+/// Resource limits to apply to a running container via [`ContainerdClient::update_container_resources`].
+pub struct ContainerResourceUpdate {
+    pub cpuset_cpus: String,
+    pub cpuset_mems: String,
+    pub cpu_quota: i64,
+    pub cpu_period: i64,
+    pub memory_limit: i64,
+}
+
 impl ContainerdClient {
     /// Update resource limits on a running container.
     /// Called by the CPU Manager to apply cpuset changes.
     pub async fn update_container_resources(
         &self,
         container_id: &str,
-        cpuset_cpus: &str,
-        cpuset_mems: &str,
-        cpu_quota: i64,
-        cpu_period: i64,
-        memory_limit: i64,
+        resources: ContainerResourceUpdate,
     ) -> Result<()> {
-        debug!(container_id, cpuset_cpus, "CRI UpdateContainerResources");
+        debug!(container_id, cpuset_cpus = %resources.cpuset_cpus, "CRI UpdateContainerResources");
         let mut rt = self.runtime.clone();
         rt.update_container_resources(UpdateContainerResourcesRequest {
             container_id: container_id.to_string(),
             linux: Some(LinuxContainerResources {
-                cpu_quota,
-                cpu_period,
+                cpu_quota: resources.cpu_quota,
+                cpu_period: resources.cpu_period,
                 cpu_shares: 1024,
-                memory_limit_bytes: memory_limit,
+                memory_limit_bytes: resources.memory_limit,
                 oom_score_adj: 0,
-                cpuset_cpus: cpuset_cpus.to_string(),
-                cpuset_mems: cpuset_mems.to_string(),
+                cpuset_cpus: resources.cpuset_cpus,
+                cpuset_mems: resources.cpuset_mems,
                 memory_swap_limit_bytes: 0,
                 hugepage_limits: vec![],
             }),

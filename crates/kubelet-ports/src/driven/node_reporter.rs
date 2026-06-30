@@ -22,6 +22,19 @@ use kubelet_core::node::NodeStatus;
 use kubelet_core::pod::lifecycle::PodLifecycleState;
 use kubelet_core::types::{PodRef, PodUID};
 
+/// Describes a Kubernetes container lifecycle event to be emitted to the API server.
+///
+/// Groups the three string fields that together describe an event, reducing the
+/// argument count of [`NodeReporter::emit_container_event`].
+pub struct ContainerEvent<'a> {
+    /// `"Normal"` or `"Warning"`.
+    pub event_type: &'a str,
+    /// Short machine-readable reason, e.g. `"Started"`, `"Killing"`, `"Failed"`.
+    pub reason: &'a str,
+    /// Human-readable detail shown in `kubectl describe pod`.
+    pub message: &'a str,
+}
+
 /// Port for reporting node and pod status to the Kubernetes API server.
 #[async_trait]
 pub trait NodeReporter: Send + Sync {
@@ -51,21 +64,15 @@ pub trait NodeReporter: Send + Sync {
     async fn renew_node_lease(&self, node_name: &str, duration_seconds: u32) -> Result<()>;
 
     /// Emit a Kubernetes Event for a container lifecycle transition.
-    ///
-    /// - `event_type`: "Normal" or "Warning"
-    /// - `reason`: e.g. "Started", "Killing", "Failed"
-    /// - `message`: human-readable message
     async fn emit_container_event(
         &self,
         pod_ref: &PodRef,
         uid: &PodUID,
         container_name: &str,
-        event_type: &str,
-        reason: &str,
-        message: &str,
+        event: ContainerEvent<'_>,
     ) -> Result<()> {
         // Default: no-op (standalone / logging modes)
-        let _ = (pod_ref, uid, container_name, event_type, reason, message);
+        let _ = (pod_ref, uid, container_name, event);
         Ok(())
     }
 }

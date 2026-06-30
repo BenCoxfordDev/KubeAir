@@ -78,6 +78,16 @@ pub struct ServiceAccountFiles {
 
 // -- Token volume manager ------------------------------------------------------
 
+/// Identity fields for the pod whose service-account volume is being mounted.
+///
+/// Groups the three string identity params to keep [`ServiceAccountTokenManager::mount`]
+/// within the argument-count limit.
+pub struct PodServiceAccountRef<'a> {
+    pub pod_uid: &'a str,
+    pub service_account_name: &'a str,
+    pub namespace: &'a str,
+}
+
 pub struct ServiceAccountTokenManager {
     base_dir: PathBuf,
     /// Default token lifetime. Matches k8s default (1 hour).
@@ -99,13 +109,16 @@ impl ServiceAccountTokenManager {
     /// kubernetes.io/service-account-token volume plugin.
     pub fn mount(
         &self,
-        pod_uid: &str,
-        service_account_name: &str,
-        namespace: &str,
+        pod_ref: PodServiceAccountRef<'_>,
         target_path: &Path,
         token: Option<&ServiceAccountToken>,
         ca_bundle: &[u8],
     ) -> Result<()> {
+        let PodServiceAccountRef {
+            pod_uid,
+            service_account_name,
+            namespace,
+        } = pod_ref;
         std::fs::create_dir_all(target_path)
             .map_err(|e| KubeletError::Storage(format!("create sa dir: {}", e)))?;
 
@@ -257,9 +270,11 @@ mod tests {
             audience: "k8s".to_string(),
         };
         mgr.mount(
-            "uid-1",
-            "default",
-            "default",
+            PodServiceAccountRef {
+                pod_uid: "uid-1",
+                service_account_name: "default",
+                namespace: "default",
+            },
             &target,
             Some(&token),
             b"CA_BUNDLE",

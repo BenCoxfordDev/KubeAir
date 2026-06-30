@@ -34,7 +34,7 @@ use kubelet_core::pod::{
     VolumeMount, VolumeSource, VolumeSpec,
 };
 use kubelet_core::types::{PodRef, PodUID, ResourceQuantity, ResourceUnit};
-use kubelet_ports::driven::node_reporter::NodeReporter;
+use kubelet_ports::driven::node_reporter::{ContainerEvent, NodeReporter};
 use kubelet_ports::driven::pod_source::PodSource;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -378,10 +378,13 @@ impl NodeReporter for KubeNodeReporter {
         pod_ref: &PodRef,
         uid: &PodUID,
         container_name: &str,
-        event_type: &str,
-        reason: &str,
-        message: &str,
+        event: ContainerEvent<'_>,
     ) -> Result<()> {
+        let ContainerEvent {
+            event_type,
+            reason,
+            message,
+        } = event;
         let Some(client) = &self.client else {
             return Ok(());
         };
