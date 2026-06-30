@@ -99,6 +99,7 @@ impl PodStatusManager {
                 image_id: String::new(),
                 container_id: None,
                 started: Some(false),
+                resources: Some(c.resources.clone()),
             })
             .collect();
 
@@ -118,6 +119,7 @@ impl PodStatusManager {
                 image_id: String::new(),
                 container_id: None,
                 started: Some(false),
+                resources: Some(c.resources.clone()),
             })
             .collect();
 

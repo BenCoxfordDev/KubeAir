@@ -3090,6 +3090,7 @@ impl PodWorker {
                 image_id,
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(matches!(ctr_state, ContainerState::Running { .. })),
+                resources: Some(init_ctr.resources.clone()),
             });
         }
         ls.init_container_statuses = new_init_statuses;
@@ -3339,6 +3340,7 @@ impl PodWorker {
                 image_id,
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(ready),
+                resources: Some(ctr.resources.clone()),
             });
         }
 
@@ -3406,6 +3408,7 @@ impl PodWorker {
                 image_id,
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(matches!(ctr_state, ContainerState::Running { .. })),
+                resources: Some(ec.resources.clone()),
             });
         }
         ls.ephemeral_container_statuses = new_ephemeral_statuses;
@@ -5497,6 +5500,62 @@ mod tests {
         assert_eq!(
             status.observed_generation, None,
             "observed_generation should be None when pod has no generation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_pod_status_populates_resources_from_spec() {
+        use kubelet_core::pod::ResourceRequirements;
+        use kubelet_core::types::{ResourceQuantity, ResourceUnit};
+        use std::collections::HashMap;
+
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-res-1", "pod-res-1");
+        // Give the container explicit cpu/memory requests and limits.
+        let mut requests = HashMap::new();
+        requests.insert(
+            "cpu".to_string(),
+            ResourceQuantity {
+                value: 250,
+                unit: ResourceUnit::Millicores,
+            },
+        );
+        requests.insert(
+            "memory".to_string(),
+            ResourceQuantity {
+                value: 128 * 1024 * 1024,
+                unit: ResourceUnit::Bytes,
+            },
+        );
+        let mut limits = HashMap::new();
+        limits.insert(
+            "cpu".to_string(),
+            ResourceQuantity {
+                value: 500,
+                unit: ResourceUnit::Millicores,
+            },
+        );
+        pod.containers[0].resources = ResourceRequirements { requests, limits };
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let status = pm.status.get(&pod.uid).unwrap();
+        assert_eq!(status.container_statuses.len(), 1);
+        let res = status.container_statuses[0]
+            .resources
+            .as_ref()
+            .expect("resources must be populated from container spec");
+        assert_eq!(
+            res.requests.get("cpu").map(|q| q.value),
+            Some(250),
+            "cpu request should be 250m"
+        );
+        assert_eq!(
+            res.limits.get("cpu").map(|q| q.value),
+            Some(500),
+            "cpu limit should be 500m"
         );
     }
 
