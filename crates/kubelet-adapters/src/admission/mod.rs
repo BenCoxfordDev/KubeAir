@@ -436,6 +436,7 @@ mod tests {
             hostname: None,
             subdomain: None,
             observed_start_time: None,
+            generation: None,
         }
     }
 

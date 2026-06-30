@@ -67,6 +67,10 @@ pub struct PodSpec {
     /// startTime from the pod's existing API server status, used to seed the
     /// local lifecycle state so we never overwrite it with Utc::now().
     pub observed_start_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// metadata.generation from the API server, used to report
+    /// status.observedGeneration so controllers can detect when the kubelet
+    /// has processed a spec update.
+    pub generation: Option<i64>,
 }
 
 /// A readiness gate -- extra condition that must be True before pod is Ready.
@@ -553,6 +557,7 @@ impl Default for PodSpec {
             hostname: None,
             subdomain: None,
             observed_start_time: None,
+            generation: None,
         }
     }
 }

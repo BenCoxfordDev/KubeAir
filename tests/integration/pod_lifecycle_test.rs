@@ -114,6 +114,7 @@ fn pod(uid: &str, name: &str, image: &str) -> PodSpec {
         hostname: None,
         subdomain: None,
         observed_start_time: None,
+        generation: None,
     }
 }
 

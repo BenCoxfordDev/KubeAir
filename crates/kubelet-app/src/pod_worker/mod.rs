@@ -3473,6 +3473,12 @@ impl PodWorker {
             ls.conditions.push(pod_ready_condition);
         }
 
+        // Track the generation of the pod spec we just processed so controllers
+        // waiting on status.observedGeneration can detect that we've applied it.
+        if let Some(spec_gen) = pod.generation {
+            ls.observed_generation = Some(spec_gen);
+        }
+
         self.pod_manager.status.set(pod.uid.clone(), ls);
     }
 
@@ -5301,6 +5307,7 @@ mod tests {
             hostname: None,
             subdomain: None,
             observed_start_time: None,
+            generation: None,
         }
     }
 
@@ -5456,6 +5463,44 @@ mod tests {
             status.init_container_statuses[0].state,
             ContainerState::Waiting { .. }
         ));
+    }
+
+    #[tokio::test]
+    async fn test_update_pod_status_sets_observed_generation() {
+        // After update_pod_status, lifecycle state.observed_generation must equal
+        // the generation stored in the PodSpec so that the status patch sent to
+        // the API server includes the correct observedGeneration value.
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-obgen-1", "pod-obgen-1");
+        pod.generation = Some(5);
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let status = pm.status.get(&pod.uid).unwrap();
+        assert_eq!(
+            status.observed_generation,
+            Some(5),
+            "observed_generation should be propagated from pod.generation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_pod_status_observed_generation_none_when_absent() {
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-obgen-2", "pod-obgen-2");
+        pod.generation = None;
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let status = pm.status.get(&pod.uid).unwrap();
+        assert_eq!(
+            status.observed_generation, None,
+            "observed_generation should be None when pod has no generation"
+        );
     }
 
     #[tokio::test]

@@ -489,6 +489,7 @@ impl FilePodSource {
             hostname: None,
             subdomain: None,
             observed_start_time: None,
+            generation: None,
         })
     }
 }
@@ -612,6 +613,7 @@ impl PodSource for FilePodSource {
                         hostname: None,
                         subdomain: None,
                         observed_start_time: None,
+                        generation: None,
                     };
                     if tx
                         .send(PodUpdate {
