@@ -1,0 +1,19 @@
+# KubeAir Clippy configuration
+# See: https://doc.rust-lang.org/clippy/configuration.html
+
+# Enforce a maximum cognitive complexity of 15 per function.
+# Clippy's cognitive_complexity lint is the successor to the old
+# cyclomatic_complexity lint and enforces the same intent.
+cognitive-complexity-threshold = 15
+
+# Cap function argument count. Beyond 6 params, prefer a builder or config struct.
+too-many-arguments-threshold = 6
+
+# Cap function body length. Long functions are hard to reason about.
+too-many-lines-threshold = 100
+
+# Cap the number of bool fields on a struct; prefer an enum or bitflags instead.
+max-struct-bools = 3
+
+# Cap the number of bool parameters on a function; bool args hurt call-site readability.
+max-fn-params-bools = 2

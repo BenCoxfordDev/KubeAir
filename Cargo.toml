@@ -9,6 +9,28 @@ members = [
 ]
 resolver = "2"
 
+[workspace.lints.clippy]
+# --- Clean-code lints denied across the whole workspace ---
+
+# Correctness / safety
+wildcard_imports = "deny"          # explicit imports only; no `use foo::*`
+panic = "deny"                     # no bare panic! in production paths
+unwrap_used = "deny"               # use `?` or `expect` with a message
+expect_used = "warn"               # expect is ok when the invariant is documented
+
+# API design
+must_use_candidate = "warn"        # flag functions whose return value should be used
+return_self_not_must_use = "warn"  # builder/fluent methods should be #[must_use]
+
+# Readability
+needless_pass_by_value = "warn"    # prefer references where ownership is not needed
+redundant_closure_for_method_calls = "warn"
+inefficient_to_string = "warn"
+
+# Performance
+cloned_instead_of_copied = "warn"  # prefer .copied() for Copy types
+unnecessary_wraps = "warn"         # remove Option/Result wrappers that are always Some/Ok
+
 [workspace.package]
 version = "1.35.0"
 edition = "2024"
