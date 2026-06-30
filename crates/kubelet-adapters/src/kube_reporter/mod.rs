@@ -622,6 +622,66 @@ fn container_state_to_k8s(s: &ContainerState) -> k8s_openapi::api::core::v1::Con
     }
 }
 
+fn resource_quantity_to_string(q: &kubelet_core::types::ResourceQuantity) -> String {
+    use kubelet_core::types::ResourceUnit;
+    match q.unit {
+        ResourceUnit::Millicores => {
+            if q.value % 1000 == 0 {
+                format!("{}", q.value / 1000)
+            } else {
+                format!("{}m", q.value)
+            }
+        }
+        ResourceUnit::Bytes => {
+            const GI: i64 = 1024 * 1024 * 1024;
+            const MI: i64 = 1024 * 1024;
+            const KI: i64 = 1024;
+            if q.value % GI == 0 {
+                format!("{}Gi", q.value / GI)
+            } else if q.value % MI == 0 {
+                format!("{}Mi", q.value / MI)
+            } else if q.value % KI == 0 {
+                format!("{}Ki", q.value / KI)
+            } else {
+                format!("{}", q.value)
+            }
+        }
+        ResourceUnit::Count => format!("{}", q.value),
+    }
+}
+
+fn resource_requirements_to_k8s(
+    r: &kubelet_core::pod::ResourceRequirements,
+) -> k8s_openapi::api::core::v1::ResourceRequirements {
+    use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+    use std::collections::BTreeMap;
+
+    let requests: BTreeMap<String, Quantity> = r
+        .requests
+        .iter()
+        .map(|(k, v)| (k.clone(), Quantity(resource_quantity_to_string(v))))
+        .collect();
+    let limits: BTreeMap<String, Quantity> = r
+        .limits
+        .iter()
+        .map(|(k, v)| (k.clone(), Quantity(resource_quantity_to_string(v))))
+        .collect();
+
+    k8s_openapi::api::core::v1::ResourceRequirements {
+        requests: if requests.is_empty() {
+            None
+        } else {
+            Some(requests)
+        },
+        limits: if limits.is_empty() {
+            None
+        } else {
+            Some(limits)
+        },
+        claims: None,
+    }
+}
+
 fn lifecycle_container_status_to_k8s(
     cs: &kubelet_core::pod::lifecycle::ContainerStatus,
 ) -> k8s_openapi::api::core::v1::ContainerStatus {
@@ -644,6 +704,7 @@ fn lifecycle_container_status_to_k8s(
         image_id: cs.image_id.clone(),
         container_id: cs.container_id.clone(),
         started,
+        resources: cs.resources.as_ref().map(resource_requirements_to_k8s),
         ..Default::default()
     }
 }
@@ -2089,5 +2150,137 @@ mod tests {
         assert!(matches!(dns.policy, kubelet_core::pod::DnsPolicy::None));
         assert_eq!(dns.nameservers, vec!["1.1.1.1", "8.8.8.8"]);
         assert_eq!(dns.searches, vec!["example.com"]);
+    }
+
+    #[test]
+    fn test_resource_quantity_to_string_millicores() {
+        use kubelet_core::types::{ResourceQuantity, ResourceUnit};
+        let q = ResourceQuantity {
+            value: 500,
+            unit: ResourceUnit::Millicores,
+        };
+        assert_eq!(resource_quantity_to_string(&q), "500m");
+        // Whole cores format without 'm'
+        let q2 = ResourceQuantity {
+            value: 2000,
+            unit: ResourceUnit::Millicores,
+        };
+        assert_eq!(resource_quantity_to_string(&q2), "2");
+    }
+
+    #[test]
+    fn test_resource_quantity_to_string_bytes() {
+        use kubelet_core::types::{ResourceQuantity, ResourceUnit};
+        let q_gi = ResourceQuantity {
+            value: 2 * 1024 * 1024 * 1024,
+            unit: ResourceUnit::Bytes,
+        };
+        assert_eq!(resource_quantity_to_string(&q_gi), "2Gi");
+        let q_mi = ResourceQuantity {
+            value: 256 * 1024 * 1024,
+            unit: ResourceUnit::Bytes,
+        };
+        assert_eq!(resource_quantity_to_string(&q_mi), "256Mi");
+        let q_ki = ResourceQuantity {
+            value: 512 * 1024,
+            unit: ResourceUnit::Bytes,
+        };
+        assert_eq!(resource_quantity_to_string(&q_ki), "512Ki");
+        let q_raw = ResourceQuantity {
+            value: 1500,
+            unit: ResourceUnit::Bytes,
+        };
+        assert_eq!(resource_quantity_to_string(&q_raw), "1500");
+    }
+
+    #[test]
+    fn test_lifecycle_container_status_to_k8s_includes_resources() {
+        use kubelet_core::pod::ResourceRequirements;
+        use kubelet_core::pod::lifecycle::{ContainerState, ContainerStatus};
+        use kubelet_core::types::{ResourceQuantity, ResourceUnit};
+        use std::collections::HashMap;
+
+        let mut requests = HashMap::new();
+        requests.insert(
+            "cpu".to_string(),
+            ResourceQuantity {
+                value: 250,
+                unit: ResourceUnit::Millicores,
+            },
+        );
+        requests.insert(
+            "memory".to_string(),
+            ResourceQuantity {
+                value: 128 * 1024 * 1024,
+                unit: ResourceUnit::Bytes,
+            },
+        );
+        let mut limits = HashMap::new();
+        limits.insert(
+            "cpu".to_string(),
+            ResourceQuantity {
+                value: 500,
+                unit: ResourceUnit::Millicores,
+            },
+        );
+        limits.insert(
+            "memory".to_string(),
+            ResourceQuantity {
+                value: 256 * 1024 * 1024,
+                unit: ResourceUnit::Bytes,
+            },
+        );
+
+        let cs = ContainerStatus {
+            name: "app".to_string(),
+            state: ContainerState::Running {
+                started_at: chrono::Utc::now(),
+            },
+            last_state: None,
+            ready: true,
+            restart_count: 0,
+            image: "nginx:latest".to_string(),
+            image_id: "sha256:abc".to_string(),
+            container_id: Some("containerd://xyz".to_string()),
+            started: Some(true),
+            resources: Some(ResourceRequirements { requests, limits }),
+        };
+
+        let k8s_cs = lifecycle_container_status_to_k8s(&cs);
+        let res = k8s_cs.resources.expect("resources must be set");
+        let req = res.requests.expect("requests must be set");
+        let lim = res.limits.expect("limits must be set");
+
+        assert_eq!(req["cpu"].0, "250m");
+        assert_eq!(req["memory"].0, "128Mi");
+        assert_eq!(lim["cpu"].0, "500m");
+        assert_eq!(lim["memory"].0, "256Mi");
+    }
+
+    #[test]
+    fn test_lifecycle_container_status_to_k8s_none_resources_omits_field() {
+        use kubelet_core::pod::lifecycle::{ContainerState, ContainerStatus};
+
+        let cs = ContainerStatus {
+            name: "app".to_string(),
+            state: ContainerState::Waiting {
+                reason: "ContainerCreating".to_string(),
+                message: None,
+            },
+            last_state: None,
+            ready: false,
+            restart_count: 0,
+            image: "nginx:latest".to_string(),
+            image_id: String::new(),
+            container_id: None,
+            started: Some(false),
+            resources: None,
+        };
+
+        let k8s_cs = lifecycle_container_status_to_k8s(&cs);
+        assert!(
+            k8s_cs.resources.is_none(),
+            "resources should be None when not set"
+        );
     }
 }
