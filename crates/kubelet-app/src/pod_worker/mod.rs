@@ -1799,20 +1799,50 @@ impl PodWorker {
                             })?,
                             &pod.pod_ref.namespace,
                         );
-                        match api.get(name).await {
-                            Ok(cm) => {
-                                configmaps.insert(name.clone(), configmap_data_bytes(&cm));
-                            }
-                            Err(e) => {
-                                if *optional {
-                                    // Optional ConfigMap not found - skip silently
-                                    debug!(pod = %pod.pod_ref, configmap = %name, "Optional ConfigMap not found for projected volume");
-                                } else {
-                                    return Err(KubeletError::Runtime(format!(
+                        // Retry the fetch a few times with a short delay for NodeAuthorizer
+                        // timing races: when a pod is first scheduled, the NodeAuthorizer's
+                        // in-memory graph may not yet contain the pod-to-node binding, so
+                        // it returns 403 "no relationship found".  The graph is updated
+                        // within ~1s; a small inner retry avoids burning the outer
+                        // exponential backoff budget on this transient condition.
+                        const NODE_AUTHZ_RETRIES: u32 = 5;
+                        const NODE_AUTHZ_DELAY: Duration = Duration::from_millis(500);
+                        let mut last_err = None;
+                        let mut succeeded = false;
+                        for attempt in 1..=NODE_AUTHZ_RETRIES {
+                            match api.get(name).await {
+                                Ok(cm) => {
+                                    configmaps.insert(name.clone(), configmap_data_bytes(&cm));
+                                    succeeded = true;
+                                    break;
+                                }
+                                Err(e) => {
+                                    let kubelet_err = KubeletError::Runtime(format!(
                                         "failed to fetch ConfigMap '{}' for projected volume: {}",
                                         name, e
-                                    )));
+                                    ));
+                                    if is_node_authz_transient_error(&kubelet_err)
+                                        && attempt < NODE_AUTHZ_RETRIES
+                                    {
+                                        debug!(
+                                            pod = %pod.pod_ref,
+                                            configmap = %name,
+                                            attempt,
+                                            "NodeAuthorizer transient 403 for projected ConfigMap, retrying"
+                                        );
+                                        tokio::time::sleep(NODE_AUTHZ_DELAY).await;
+                                    } else {
+                                        last_err = Some(kubelet_err);
+                                        break;
+                                    }
                                 }
+                            }
+                        }
+                        if !succeeded {
+                            if *optional {
+                                debug!(pod = %pod.pod_ref, configmap = %name, "Optional ConfigMap not found for projected volume");
+                            } else if let Some(e) = last_err {
+                                return Err(e);
                             }
                         }
                     }
@@ -1828,25 +1858,51 @@ impl PodWorker {
                         })?,
                         &pod.pod_ref.namespace,
                     );
-                    match api.get(name).await {
-                        Ok(secret) => {
-                            let data = secret
-                                .data
-                                .unwrap_or_default()
-                                .into_iter()
-                                .map(|(key, value)| (key, value.0))
-                                .collect();
-                            secrets.insert(name.clone(), data);
-                        }
-                        Err(e) => {
-                            if *optional {
-                                debug!(pod = %pod.pod_ref, secret = %name, "Optional Secret not found for projected volume");
-                            } else {
-                                return Err(KubeletError::Runtime(format!(
+                    // Same NodeAuthorizer transient-403 retry as for ConfigMap above.
+                    const NODE_AUTHZ_RETRIES_S: u32 = 5;
+                    const NODE_AUTHZ_DELAY_S: Duration = Duration::from_millis(500);
+                    let mut last_err_s = None;
+                    let mut succeeded_s = false;
+                    for attempt in 1..=NODE_AUTHZ_RETRIES_S {
+                        match api.get(name).await {
+                            Ok(secret) => {
+                                let data = secret
+                                    .data
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .map(|(key, value)| (key, value.0))
+                                    .collect();
+                                secrets.insert(name.clone(), data);
+                                succeeded_s = true;
+                                break;
+                            }
+                            Err(e) => {
+                                let kubelet_err = KubeletError::Runtime(format!(
                                     "failed to fetch Secret '{}' for projected volume: {}",
                                     name, e
-                                )));
+                                ));
+                                if is_node_authz_transient_error(&kubelet_err)
+                                    && attempt < NODE_AUTHZ_RETRIES_S
+                                {
+                                    debug!(
+                                        pod = %pod.pod_ref,
+                                        secret = %name,
+                                        attempt,
+                                        "NodeAuthorizer transient 403 for projected Secret, retrying"
+                                    );
+                                    tokio::time::sleep(NODE_AUTHZ_DELAY_S).await;
+                                } else {
+                                    last_err_s = Some(kubelet_err);
+                                    break;
+                                }
                             }
+                        }
+                    }
+                    if !succeeded_s {
+                        if *optional {
+                            debug!(pod = %pod.pod_ref, secret = %name, "Optional Secret not found for projected volume");
+                        } else if let Some(e) = last_err_s {
+                            return Err(e);
                         }
                     }
                 }
@@ -3549,6 +3605,24 @@ fn is_transient_runtime_connection_error(err: &KubeletError) -> bool {
         return lower.contains("status: unavailable")
             || lower.contains("connection refused")
             || lower.contains("transport error");
+    }
+    false
+}
+
+/// Returns true when a projected-volume API fetch was rejected with HTTP 403
+/// because the Kubernetes NodeAuthorizer hasn't yet processed the pod-to-node
+/// binding event.  This is a transient race: the NodeAuthorizer's informer will
+/// update its graph within a few hundred milliseconds, after which the same
+/// request will succeed.
+///
+/// Error text produced by `kube-rs` for this case:
+///   "configmaps \"kube-root-ca.crt\" is forbidden: … no relationship found
+///    between node 'X' and this object"
+fn is_node_authz_transient_error(err: &KubeletError) -> bool {
+    if let KubeletError::Runtime(msg) = err {
+        let lower = msg.to_lowercase();
+        return lower.contains("no relationship found between node")
+            && (lower.contains("forbidden") || lower.contains("403"));
     }
     false
 }
@@ -8261,6 +8335,159 @@ mod tests {
         assert!(
             map.get(&cid_str).is_none(),
             "entry should be removed from readiness map when container no longer exists"
+        );
+    }
+
+    // --- NodeAuthorizer transient-403 detection tests ---
+
+    #[test]
+    fn test_is_node_authz_transient_error_detects_no_relationship() {
+        let err = KubeletError::Runtime(
+            "failed to fetch ConfigMap 'kube-root-ca.crt' for projected volume: \
+             ApiError: configmaps \"kube-root-ca.crt\" is forbidden: User \
+             \"system:node:localhost.localdomain\" cannot get resource \"configmaps\" \
+             in API group \"\" in the namespace \"default\": no relationship found \
+             between node 'localhost.localdomain' and this object: Forbidden"
+                .to_string(),
+        );
+        assert!(
+            is_node_authz_transient_error(&err),
+            "should detect NodeAuthorizer 403 as transient"
+        );
+    }
+
+    #[test]
+    fn test_is_node_authz_transient_error_ignores_permanent_forbidden() {
+        // A 403 that isn't from the NodeAuthorizer should not be treated as transient.
+        let err = KubeletError::Runtime(
+            "failed to fetch ConfigMap 'my-secret' for projected volume: \
+             ApiError: configmaps \"my-secret\" is forbidden: User \
+             \"system:node:worker\" cannot get resource \"configmaps\" \
+             in API group \"\" in the namespace \"default\": \
+             User does not have permission"
+                .to_string(),
+        );
+        assert!(
+            !is_node_authz_transient_error(&err),
+            "ordinary permission denied must not be treated as NodeAuthorizer transient"
+        );
+    }
+
+    #[test]
+    fn test_is_node_authz_transient_error_ignores_not_found() {
+        let err = KubeletError::Runtime(
+            "failed to fetch ConfigMap 'missing' for projected volume: \
+             ApiError: configmaps \"missing\" not found"
+                .to_string(),
+        );
+        assert!(
+            !is_node_authz_transient_error(&err),
+            "not-found error must not be treated as NodeAuthorizer transient"
+        );
+    }
+
+    #[test]
+    fn test_is_node_authz_transient_error_ignores_non_runtime_err() {
+        let err = KubeletError::Storage("disk full".to_string());
+        assert!(!is_node_authz_transient_error(&err));
+    }
+
+    // --- Init container CrashLoopBackOff reporting tests ---
+
+    #[tokio::test]
+    async fn test_init_container_crash_loop_recorded_in_status() {
+        // After update_pod_status with crash_loop_backoff containing an init
+        // container name, the lifecycle state must record CrashLoopBackOff.
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-init-clbo", "pod-init-clbo");
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-fail".to_string(),
+            image: "busybox:latest".to_string(),
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        // Simulate the container being in CrashLoopBackOff.
+        state.restart_counts.insert("init-fail".to_string(), 3);
+        state.crash_loop_backoff.insert("init-fail".to_string());
+
+        worker.update_pod_status(&pod, &state).await;
+
+        let ls = pm.status.get(&pod.uid).unwrap();
+        let init_status = ls
+            .init_container_statuses
+            .iter()
+            .find(|s| s.name == "init-fail")
+            .expect("init container status must be present");
+
+        // The container should be in a Waiting state (CrashLoopBackOff).
+        assert!(
+            matches!(
+                init_status.state,
+                kubelet_core::pod::lifecycle::ContainerState::Waiting { .. }
+            ),
+            "init container in crash loop must be in Waiting state, got {:?}",
+            init_status.state
+        );
+        // ContainerStatus.restart_count is stored as restart_counts - 1 because
+        // the first run is count=0 (no restarts) and the first restart takes it
+        // to 1 which is displayed as restart_count=0.  With state.restart_counts=3
+        // the displayed value is 2.
+        assert_eq!(
+            init_status.restart_count, 2,
+            "restart_count must be restart_counts - 1"
+        );
+        // App containers (nginx) must still be in Waiting state — not started.
+        let app_status = ls
+            .container_statuses
+            .iter()
+            .find(|s| s.name == "nginx")
+            .expect("app container status must be present");
+        assert!(
+            matches!(
+                app_status.state,
+                kubelet_core::pod::lifecycle::ContainerState::Waiting { .. }
+            ),
+            "app container must be Waiting while init containers are crashing, got {:?}",
+            app_status.state
+        );
+    }
+
+    #[tokio::test]
+    async fn test_app_containers_not_started_while_init_failing() {
+        // Verifies that when init containers are present and failing, the app
+        // containers' status is Waiting (not Running), matching the Kubernetes
+        // contract that app containers must not start until all init containers
+        // have completed successfully.
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-init-appwait", "pod-init-appwait");
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-fail".to_string(),
+            image: "busybox:latest".to_string(),
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        // No sandbox / container IDs in state — init hasn't completed.
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let ls = pm.status.get(&pod.uid).unwrap();
+        // App container status must be Waiting.
+        let app_status = ls
+            .container_statuses
+            .iter()
+            .find(|s| s.name == "nginx") // make_pod creates a container named "nginx"
+            .expect("app container status must be present");
+        assert!(
+            matches!(
+                app_status.state,
+                kubelet_core::pod::lifecycle::ContainerState::Waiting { .. }
+            ),
+            "app container must be Waiting while init containers are still running, \
+             got {:?}",
+            app_status.state
         );
     }
 }
