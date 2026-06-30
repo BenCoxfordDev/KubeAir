@@ -99,6 +99,7 @@ fn base_pod() -> PodSpec {
         hostname: None,
         subdomain: None,
         observed_start_time: None,
+        generation: None,
     }
 }
 
@@ -115,6 +116,7 @@ fn running(name: &str) -> ContainerStatus {
         image_id: "sha256:abc".to_string(),
         container_id: Some("ctr://abc".to_string()),
         started: Some(true),
+        resources: None,
     }
 }
 
@@ -136,6 +138,7 @@ fn terminated(name: &str, exit_code: i32) -> ContainerStatus {
         image_id: "sha256:abc".to_string(),
         container_id: None,
         started: Some(false),
+        resources: None,
     }
 }
 
@@ -153,6 +156,7 @@ fn waiting(name: &str) -> ContainerStatus {
         image_id: "sha256:abc".to_string(),
         container_id: None,
         started: Some(false),
+        resources: None,
     }
 }
 
@@ -662,6 +666,7 @@ fn conformance_init_container_ready_true_when_completed() {
             image_id: "".to_string(),
             container_id: None,
             started: Some(false),
+            resources: None,
         };
         mgr.set(pod.uid.clone(), ls);
     }

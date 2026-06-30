@@ -149,6 +149,7 @@ fn test_sandbox_config_dns_cluster_first() {
         hostname: None,
         subdomain: None,
         observed_start_time: None,
+        generation: None,
     };
     let dns = NodeDnsConfig::default();
     let cfg = build_sandbox_config(&pod, &dns, "runc", "/var/log/pods", "pause:3.6");
@@ -406,6 +407,7 @@ fn make_test_pod(uid: &str) -> kubelet_core::pod::PodSpec {
         hostname: None,
         subdomain: None,
         observed_start_time: None,
+        generation: None,
     }
 }
 

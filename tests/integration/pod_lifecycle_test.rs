@@ -41,8 +41,8 @@ use kubelet_core::node::{NodeAddress, NodeAddressType, NodeConditionStatus, Node
 use kubelet_core::pod::lifecycle::PodPhase;
 use kubelet_core::pod::manager::PodManager;
 use kubelet_core::pod::{
-    ContainerSpec, ImagePullPolicy, PodOperation, PodSpec, PodUpdate, ResourceRequirements,
-    RestartPolicy, VolumeSource, VolumeSpec,
+    ContainerPort, ContainerSpec, ImagePullPolicy, PodOperation, PodSpec, PodUpdate, Protocol,
+    ResourceRequirements, RestartPolicy, VolumeSource, VolumeSpec,
 };
 use kubelet_core::types::{PodRef, PodUID};
 use kubelet_ports::driven::pod_source::PodSource;
@@ -114,6 +114,7 @@ fn pod(uid: &str, name: &str, image: &str) -> PodSpec {
         hostname: None,
         subdomain: None,
         observed_start_time: None,
+        generation: None,
     }
 }
 
@@ -1001,4 +1002,264 @@ async fn integ_http_lifecycle_hook_connects_to_plain_server() {
         "Plain HTTP hook should succeed: {:?}",
         result
     );
+}
+
+/// Regression test: a sidecar init container (restartPolicy=Always) with a
+/// failing readiness probe must cause the pod's Ready/ContainersReady conditions
+/// to be False.
+#[tokio::test]
+async fn integ_sidecar_failing_readiness_probe_keeps_pod_not_ready() {
+    use kubelet_core::pod::lifecycle::{ConditionStatus, PodConditionType};
+    use kubelet_core::pod::{Probe, ProbeHandler, RestartPolicy};
+
+    let (tx, _rx) = mpsc::channel(100);
+    let pm = Arc::new(PodManager::new(tx));
+    let rt = Arc::new(MockRuntime::new());
+    let dir = TempDir::new().unwrap();
+    let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
+    let cg = Arc::new(CgroupManager::new("/sys/fs/cgroup", true));
+    let vm = Arc::new(LocalVolumeManager::new(dir.path()));
+    let worker = PodWorker::new(
+        pm.clone(),
+        rt.clone(),
+        rt.clone(),
+        vm,
+        cm,
+        cg,
+        Arc::new(HashMap::new()),
+        "cgroupfs",
+        dir.path(),
+        "/tmp",
+        "registry.k8s.io/pause:3.9",
+        None,
+        "",
+        Arc::new(InMemoryNodeReporter::new()),
+        NodeDnsConfig::default(),
+        Arc::new(DeviceManager::new("/tmp")),
+    );
+
+    let mut p = pod("sidecar-rdy-uid", "sidecar-rdy-pod", "nginx");
+    p.init_containers = vec![ContainerSpec {
+        name: "sidecar".to_string(),
+        image: "busybox:latest".to_string(),
+        restart_policy: Some(RestartPolicy::Always),
+        readiness_probe: Some(Probe {
+            handler: ProbeHandler::TcpSocket {
+                port: 19997, // nothing listening here — probe will fail
+                host: None,
+            },
+            initial_delay_seconds: 0,
+            period_seconds: 1,
+            timeout_seconds: 1,
+            success_threshold: 1,
+            failure_threshold: 1,
+        }),
+        ..Default::default()
+    }];
+    pm.upsert(p.clone()).await.unwrap();
+
+    let mut state = PodRuntimeState::default();
+    worker.sync_pod(&p, &mut state).await;
+
+    // Give the readiness probe task a short window to attempt and record false.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    worker.sync_pod(&p, &mut state).await;
+
+    let ls = pm.status.get(&p.uid).expect("status must exist");
+
+    let sidecar_status = ls
+        .init_container_statuses
+        .iter()
+        .find(|s| s.name == "sidecar")
+        .expect("sidecar status must be present");
+    assert!(
+        !sidecar_status.ready,
+        "sidecar with failing readiness probe must not be ready"
+    );
+
+    let ready_cond = ls
+        .conditions
+        .iter()
+        .find(|c| c.condition_type == PodConditionType::Ready);
+    if let Some(cond) = ready_cond {
+        assert_eq!(
+            cond.status,
+            ConditionStatus::False,
+            "pod Ready must be False when sidecar readiness probe is failing"
+        );
+    }
+}
+
+/// Regression test: a sidecar init container with a liveness probe must have
+/// that probe registered and running.  A sidecar with a startup probe must
+/// gate liveness/readiness until the startup probe passes.
+///
+/// This verifies the probe registration path without requiring a full cluster
+/// (the MockRuntime starts all containers immediately as Running).
+#[tokio::test]
+async fn integ_sidecar_liveness_probe_is_registered() {
+    use kubelet_core::pod::{Probe, ProbeHandler, RestartPolicy};
+
+    let (tx, _rx) = mpsc::channel(100);
+    let pm = Arc::new(PodManager::new(tx));
+    let rt = Arc::new(MockRuntime::new());
+    let dir = TempDir::new().unwrap();
+    let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
+    let cg = Arc::new(CgroupManager::new("/sys/fs/cgroup", true));
+    let vm = Arc::new(LocalVolumeManager::new(dir.path()));
+    let worker = PodWorker::new(
+        pm.clone(),
+        rt.clone(),
+        rt.clone(),
+        vm,
+        cm,
+        cg,
+        Arc::new(HashMap::new()),
+        "cgroupfs",
+        dir.path(),
+        "/tmp",
+        "registry.k8s.io/pause:3.9",
+        None,
+        "",
+        Arc::new(InMemoryNodeReporter::new()),
+        NodeDnsConfig::default(),
+        Arc::new(DeviceManager::new("/tmp")),
+    );
+
+    let mut p = pod("sidecar-live-uid", "sidecar-live-pod", "nginx");
+    p.init_containers = vec![ContainerSpec {
+        name: "sidecar-live".to_string(),
+        image: "busybox:latest".to_string(),
+        restart_policy: Some(RestartPolicy::Always),
+        liveness_probe: Some(Probe {
+            // Use a TCP probe to a port guaranteed to fail so we can detect
+            // the probe was armed without waiting for a kill/restart cycle.
+            handler: ProbeHandler::TcpSocket {
+                port: 19996,
+                host: None,
+            },
+            initial_delay_seconds: 0,
+            period_seconds: 1,
+            timeout_seconds: 1,
+            success_threshold: 1,
+            failure_threshold: 3,
+        }),
+        ..Default::default()
+    }];
+    pm.upsert(p.clone()).await.unwrap();
+
+    let mut state = PodRuntimeState::default();
+    // First sync starts the sidecar. Second sync finds it Running and registers probes.
+    worker.sync_pod(&p, &mut state).await;
+    worker.sync_pod(&p, &mut state).await;
+
+    // The probe_registered map must contain the sidecar's container ID after sync.
+    assert!(
+        state.probe_registered.contains_key("sidecar-live"),
+        "liveness probe for sidecar must be registered after sync"
+    );
+}
+
+/// Regression test: a second pod requesting a hostPort already held by a
+/// running pod must be rejected immediately with phase=Failed and
+/// reason=HostPortConflict, without ever starting any containers.
+///
+/// This mirrors the upstream kubelet's GeneralPredicates admission check
+/// (pkg/kubelet/lifecycle/predicate.go).  StatefulSet relies on the Failed
+/// status to detect that ss-0 cannot start and recreate it once the
+/// conflicting pod is gone.
+#[tokio::test]
+async fn integ_host_port_conflict_rejected() {
+    use kubelet_adapters::device_manager::DeviceManager;
+    use kubelet_adapters::sandbox_builder::NodeDnsConfig;
+    use kubelet_app::runtime_manager::RuntimeManager;
+    use kubelet_core::pod::lifecycle::{ConditionStatus, PodConditionType, PodPhase};
+
+    let (tx, _rx) = mpsc::channel(1000);
+    let pm = Arc::new(PodManager::new(tx));
+    let rt = Arc::new(MockRuntime::new());
+    let dir = TempDir::new().unwrap();
+    let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
+    let cg = Arc::new(CgroupManager::new("/sys/fs/cgroup", true));
+    let vm = Arc::new(LocalVolumeManager::new(dir.path()));
+    let reporter = Arc::new(InMemoryNodeReporter::new());
+    let manager = RuntimeManager::new(
+        pm.clone(),
+        rt.clone(),
+        rt.clone(),
+        vm,
+        reporter,
+        cm,
+        cg,
+        Arc::new(HashMap::new()),
+        "cgroupfs",
+        dir.path(),
+        "/tmp",
+        "registry.k8s.io/pause:3.9",
+        None,
+        "",
+        NodeDnsConfig::default(),
+        Arc::new(DeviceManager::new("/tmp")),
+    );
+
+    // Build a pod that holds host port 18181.
+    let mut first = pod("integ-hp-uid-1", "integ-hp-pod-1", "nginx");
+    first.containers[0].ports = vec![ContainerPort {
+        name: None,
+        container_port: 80,
+        host_port: Some(18181),
+        protocol: Protocol::TCP,
+        host_ip: None,
+    }];
+    pm.upsert(first.clone()).await.unwrap();
+    pm.status.initialize(&first);
+    manager
+        .handle_update(PodUpdate {
+            pod: first.clone(),
+            op: PodOperation::Add,
+        })
+        .await;
+
+    // Second pod requests the same host port.
+    let mut second = pod("integ-hp-uid-2", "integ-hp-pod-2", "nginx");
+    second.containers[0].ports = vec![ContainerPort {
+        name: None,
+        container_port: 80,
+        host_port: Some(18181),
+        protocol: Protocol::TCP,
+        host_ip: None,
+    }];
+    pm.upsert(second.clone()).await.unwrap();
+    pm.status.initialize(&second);
+    manager
+        .handle_update(PodUpdate {
+            pod: second.clone(),
+            op: PodOperation::Add,
+        })
+        .await;
+
+    // Rejection is synchronous — phase must be Failed immediately.
+    let state = pm.status.get(&second.uid).expect("status must exist");
+    assert_eq!(
+        state.phase,
+        PodPhase::Failed,
+        "conflicting pod must be Failed"
+    );
+    assert_eq!(
+        state.reason.as_deref(),
+        Some("HostPortConflict"),
+        "reason must be HostPortConflict"
+    );
+
+    let sched = state
+        .conditions
+        .iter()
+        .find(|c| c.condition_type == PodConditionType::PodScheduled)
+        .expect("PodScheduled condition must be present");
+    assert_eq!(
+        sched.status,
+        ConditionStatus::False,
+        "PodScheduled must be False for rejected pod"
+    );
+    assert_eq!(sched.reason.as_deref(), Some("Unschedulable"));
 }

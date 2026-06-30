@@ -578,6 +578,104 @@ impl PodWorker {
                         self.runtime.container_status(&cid).await,
                         Ok(Some(s)) if s.state == RuntimeContainerState::Running
                     ) {
+                        let pod_ip = state.sandbox_ip.clone().unwrap_or_default();
+
+                        // Startup probe: must pass before liveness/readiness are armed.
+                        if let Some(ref startup_probe) = init_ctr.startup_probe {
+                            let reg = state.startup_probe_registered.get(&init_ctr.name);
+                            if reg.map(String::as_str) != Some(cid.0.as_str()) {
+                                let runtime = self.runtime.clone();
+                                let cid_clone = cid.clone();
+                                let probe_clone = startup_probe.clone();
+                                let done_map = self.container_startup_done.clone();
+                                tokio::spawn(async move {
+                                    spawn_startup_probe(
+                                        runtime,
+                                        cid_clone,
+                                        probe_clone,
+                                        pod_ip.clone(),
+                                        done_map,
+                                    )
+                                    .await;
+                                });
+                                state
+                                    .startup_probe_registered
+                                    .insert(init_ctr.name.clone(), cid.0.clone());
+                            }
+                            // Don't arm liveness/readiness until startup has completed.
+                            let startup_done = self
+                                .container_startup_done
+                                .get(&cid.0)
+                                .map(|v| *v)
+                                .unwrap_or(false);
+                            if !startup_done {
+                                continue; // running, startup pending
+                            }
+                        }
+
+                        // Liveness probe: kills the sidecar on threshold failure, which
+                        // triggers a restart (restartPolicy=Always guarantees restart).
+                        if let Some(ref probe) = init_ctr.liveness_probe {
+                            let registered = state.probe_registered.get(&init_ctr.name);
+                            if registered.map(String::as_str) != Some(cid.0.as_str()) {
+                                let runtime = self.runtime.clone();
+                                let cid_clone = cid.clone();
+                                let probe_clone = probe.clone();
+                                let pod_ip2 = state.sandbox_ip.clone().unwrap_or_default();
+                                let reporter_clone = self.reporter.clone();
+                                let pod_ref_clone = pod.pod_ref.clone();
+                                let pod_uid_clone = pod.uid.clone();
+                                let ctr_name_clone = init_ctr.name.clone();
+                                info!(
+                                    cid = %cid,
+                                    pod_ip = %pod_ip2,
+                                    "Spawning sidecar liveness probe task"
+                                );
+                                tokio::spawn(async move {
+                                    spawn_liveness_probe(
+                                        runtime,
+                                        cid_clone,
+                                        probe_clone,
+                                        pod_ip2,
+                                        reporter_clone,
+                                        pod_ref_clone,
+                                        pod_uid_clone,
+                                        ctr_name_clone,
+                                    )
+                                    .await;
+                                });
+                                state
+                                    .probe_registered
+                                    .insert(init_ctr.name.clone(), cid.0.clone());
+                            }
+                        }
+
+                        // Readiness probe: updates shared readiness map.
+                        // Sidecar readiness drives pod ContainersReady/Ready conditions.
+                        if let Some(ref probe) = init_ctr.readiness_probe {
+                            let registered = state.readiness_probe_registered.get(&init_ctr.name);
+                            if registered.map(String::as_str) != Some(cid.0.as_str()) {
+                                let runtime = self.runtime.clone();
+                                let cid_clone = cid.clone();
+                                let probe_clone = probe.clone();
+                                let pod_ip3 = state.sandbox_ip.clone().unwrap_or_default();
+                                let readiness_map = self.container_readiness.clone();
+                                tokio::spawn(async move {
+                                    spawn_readiness_probe(
+                                        runtime,
+                                        cid_clone,
+                                        probe_clone,
+                                        pod_ip3,
+                                        readiness_map,
+                                    )
+                                    .await;
+                                });
+                                state
+                                    .readiness_probe_registered
+                                    .insert(init_ctr.name.clone(), cid.0.clone());
+                            }
+                        }
+
                         continue; // running, proceed to next
                     }
                     // Not running, fall through to (re)start
@@ -1732,20 +1830,50 @@ impl PodWorker {
                             })?,
                             &pod.pod_ref.namespace,
                         );
-                        match api.get(name).await {
-                            Ok(cm) => {
-                                configmaps.insert(name.clone(), configmap_data_bytes(&cm));
-                            }
-                            Err(e) => {
-                                if *optional {
-                                    // Optional ConfigMap not found - skip silently
-                                    debug!(pod = %pod.pod_ref, configmap = %name, "Optional ConfigMap not found for projected volume");
-                                } else {
-                                    return Err(KubeletError::Runtime(format!(
+                        // Retry the fetch a few times with a short delay for NodeAuthorizer
+                        // timing races: when a pod is first scheduled, the NodeAuthorizer's
+                        // in-memory graph may not yet contain the pod-to-node binding, so
+                        // it returns 403 "no relationship found".  The graph is updated
+                        // within ~1s; a small inner retry avoids burning the outer
+                        // exponential backoff budget on this transient condition.
+                        const NODE_AUTHZ_RETRIES: u32 = 5;
+                        const NODE_AUTHZ_DELAY: Duration = Duration::from_millis(500);
+                        let mut last_err = None;
+                        let mut succeeded = false;
+                        for attempt in 1..=NODE_AUTHZ_RETRIES {
+                            match api.get(name).await {
+                                Ok(cm) => {
+                                    configmaps.insert(name.clone(), configmap_data_bytes(&cm));
+                                    succeeded = true;
+                                    break;
+                                }
+                                Err(e) => {
+                                    let kubelet_err = KubeletError::Runtime(format!(
                                         "failed to fetch ConfigMap '{}' for projected volume: {}",
                                         name, e
-                                    )));
+                                    ));
+                                    if is_node_authz_transient_error(&kubelet_err)
+                                        && attempt < NODE_AUTHZ_RETRIES
+                                    {
+                                        debug!(
+                                            pod = %pod.pod_ref,
+                                            configmap = %name,
+                                            attempt,
+                                            "NodeAuthorizer transient 403 for projected ConfigMap, retrying"
+                                        );
+                                        tokio::time::sleep(NODE_AUTHZ_DELAY).await;
+                                    } else {
+                                        last_err = Some(kubelet_err);
+                                        break;
+                                    }
                                 }
+                            }
+                        }
+                        if !succeeded {
+                            if *optional {
+                                debug!(pod = %pod.pod_ref, configmap = %name, "Optional ConfigMap not found for projected volume");
+                            } else if let Some(e) = last_err {
+                                return Err(e);
                             }
                         }
                     }
@@ -1761,25 +1889,51 @@ impl PodWorker {
                         })?,
                         &pod.pod_ref.namespace,
                     );
-                    match api.get(name).await {
-                        Ok(secret) => {
-                            let data = secret
-                                .data
-                                .unwrap_or_default()
-                                .into_iter()
-                                .map(|(key, value)| (key, value.0))
-                                .collect();
-                            secrets.insert(name.clone(), data);
-                        }
-                        Err(e) => {
-                            if *optional {
-                                debug!(pod = %pod.pod_ref, secret = %name, "Optional Secret not found for projected volume");
-                            } else {
-                                return Err(KubeletError::Runtime(format!(
+                    // Same NodeAuthorizer transient-403 retry as for ConfigMap above.
+                    const NODE_AUTHZ_RETRIES_S: u32 = 5;
+                    const NODE_AUTHZ_DELAY_S: Duration = Duration::from_millis(500);
+                    let mut last_err_s = None;
+                    let mut succeeded_s = false;
+                    for attempt in 1..=NODE_AUTHZ_RETRIES_S {
+                        match api.get(name).await {
+                            Ok(secret) => {
+                                let data = secret
+                                    .data
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .map(|(key, value)| (key, value.0))
+                                    .collect();
+                                secrets.insert(name.clone(), data);
+                                succeeded_s = true;
+                                break;
+                            }
+                            Err(e) => {
+                                let kubelet_err = KubeletError::Runtime(format!(
                                     "failed to fetch Secret '{}' for projected volume: {}",
                                     name, e
-                                )));
+                                ));
+                                if is_node_authz_transient_error(&kubelet_err)
+                                    && attempt < NODE_AUTHZ_RETRIES_S
+                                {
+                                    debug!(
+                                        pod = %pod.pod_ref,
+                                        secret = %name,
+                                        attempt,
+                                        "NodeAuthorizer transient 403 for projected Secret, retrying"
+                                    );
+                                    tokio::time::sleep(NODE_AUTHZ_DELAY_S).await;
+                                } else {
+                                    last_err_s = Some(kubelet_err);
+                                    break;
+                                }
                             }
+                        }
+                    }
+                    if !succeeded_s {
+                        if *optional {
+                            debug!(pod = %pod.pod_ref, secret = %name, "Optional Secret not found for projected volume");
+                        } else if let Some(e) = last_err_s {
+                            return Err(e);
                         }
                     }
                 }
@@ -2303,12 +2457,15 @@ impl PodWorker {
         }
 
         // Add kubelet-managed /etc/hosts bind-mount (handles HostAliases).
-        // Skip when the container already has an explicit /etc/hosts volumeMount.
+        // Skip when the container already has an explicit /etc/hosts volumeMount,
+        // or when the pod uses the host network namespace (hostNetwork=true) — in
+        // that case the container shares the node's /etc/hosts and kubelet must
+        // not overwrite it (upstream kubelet behaviour).
         let has_custom_hosts_mount = resolved_container
             .volume_mounts
             .iter()
             .any(|m| m.mount_path == "/etc/hosts");
-        if !has_custom_hosts_mount {
+        if !has_custom_hosts_mount && !pod.host_network {
             match self.write_etc_hosts_file(pod, state.sandbox_ip.as_deref()) {
                 Ok(hosts_path) => {
                     resolved_container
@@ -2982,10 +3139,26 @@ impl PodWorker {
 
             // An init container is considered "ready" once it has successfully
             // completed (exit code 0) for regular init containers, or when it is
-            // running for sidecar init containers (restartPolicy=Always).
+            // running AND its readiness probe (if any) has passed for sidecar
+            // init containers (restartPolicy=Always).
             let init_ready = match &ctr_state {
                 ContainerState::Terminated { exit_code, .. } if *exit_code == 0 => true,
-                ContainerState::Running { .. } if is_sidecar_init_container(init_ctr) => true,
+                ContainerState::Running { .. } if is_sidecar_init_container(init_ctr) => {
+                    if let Some(cid_str) = cid_str {
+                        if init_ctr.readiness_probe.is_some() {
+                            // Readiness probe registered: check probe result.
+                            // Defaults to false until the first successful probe fires.
+                            self.container_readiness
+                                .get(cid_str)
+                                .map(|v| *v)
+                                .unwrap_or(false)
+                        } else {
+                            true
+                        }
+                    } else {
+                        false
+                    }
+                }
                 _ => false,
             };
 
@@ -3004,6 +3177,7 @@ impl PodWorker {
                 image_id,
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(matches!(ctr_state, ContainerState::Running { .. })),
+                resources: Some(init_ctr.resources.clone()),
             });
         }
         ls.init_container_statuses = new_init_statuses;
@@ -3061,6 +3235,25 @@ impl PodWorker {
         }
 
         let mut all_ready = true;
+
+        // Sidecar init containers (restartPolicy=Always) contribute to the pod's
+        // ContainersReady/Ready conditions, just like regular containers.
+        // A sidecar that is Running but has a failing readiness probe must cause
+        // all_ready = false.  Mirrors Go kubelet isPodReadyConditionTrue().
+        for init_status in &ls.init_container_statuses {
+            if !init_status.ready {
+                let is_sidecar = pod
+                    .init_containers
+                    .iter()
+                    .find(|c| c.name == init_status.name)
+                    .map(is_sidecar_init_container)
+                    .unwrap_or(false);
+                if is_sidecar && matches!(init_status.state, ContainerState::Running { .. }) {
+                    all_ready = false;
+                }
+            }
+        }
+
         let mut new_statuses = Vec::new();
 
         for ctr in &pod.containers {
@@ -3234,6 +3427,7 @@ impl PodWorker {
                 image_id,
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(ready),
+                resources: Some(ctr.resources.clone()),
             });
         }
 
@@ -3301,6 +3495,7 @@ impl PodWorker {
                 image_id,
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(matches!(ctr_state, ContainerState::Running { .. })),
+                resources: Some(ec.resources.clone()),
             });
         }
         ls.ephemeral_container_statuses = new_ephemeral_statuses;
@@ -3363,6 +3558,12 @@ impl PodWorker {
             ls.conditions[pos] = pod_ready_condition;
         } else {
             ls.conditions.push(pod_ready_condition);
+        }
+
+        // Track the generation of the pod spec we just processed so controllers
+        // waiting on status.observedGeneration can detect that we've applied it.
+        if let Some(spec_gen) = pod.generation {
+            ls.observed_generation = Some(spec_gen);
         }
 
         self.pod_manager.status.set(pod.uid.clone(), ls);
@@ -3441,6 +3642,24 @@ fn is_transient_runtime_connection_error(err: &KubeletError) -> bool {
         return lower.contains("status: unavailable")
             || lower.contains("connection refused")
             || lower.contains("transport error");
+    }
+    false
+}
+
+/// Returns true when a projected-volume API fetch was rejected with HTTP 403
+/// because the Kubernetes NodeAuthorizer hasn't yet processed the pod-to-node
+/// binding event.  This is a transient race: the NodeAuthorizer's informer will
+/// update its graph within a few hundred milliseconds, after which the same
+/// request will succeed.
+///
+/// Error text produced by `kube-rs` for this case:
+///   "configmaps \"kube-root-ca.crt\" is forbidden: … no relationship found
+///    between node 'X' and this object"
+fn is_node_authz_transient_error(err: &KubeletError) -> bool {
+    if let KubeletError::Runtime(msg) = err {
+        let lower = msg.to_lowercase();
+        return lower.contains("no relationship found between node")
+            && (lower.contains("forbidden") || lower.contains("403"));
     }
     false
 }
@@ -5193,6 +5412,7 @@ mod tests {
             hostname: None,
             subdomain: None,
             observed_start_time: None,
+            generation: None,
         }
     }
 
@@ -5348,6 +5568,100 @@ mod tests {
             status.init_container_statuses[0].state,
             ContainerState::Waiting { .. }
         ));
+    }
+
+    #[tokio::test]
+    async fn test_update_pod_status_sets_observed_generation() {
+        // After update_pod_status, lifecycle state.observed_generation must equal
+        // the generation stored in the PodSpec so that the status patch sent to
+        // the API server includes the correct observedGeneration value.
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-obgen-1", "pod-obgen-1");
+        pod.generation = Some(5);
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let status = pm.status.get(&pod.uid).unwrap();
+        assert_eq!(
+            status.observed_generation,
+            Some(5),
+            "observed_generation should be propagated from pod.generation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_pod_status_observed_generation_none_when_absent() {
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-obgen-2", "pod-obgen-2");
+        pod.generation = None;
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let status = pm.status.get(&pod.uid).unwrap();
+        assert_eq!(
+            status.observed_generation, None,
+            "observed_generation should be None when pod has no generation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_pod_status_populates_resources_from_spec() {
+        use kubelet_core::pod::ResourceRequirements;
+        use kubelet_core::types::{ResourceQuantity, ResourceUnit};
+        use std::collections::HashMap;
+
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-res-1", "pod-res-1");
+        // Give the container explicit cpu/memory requests and limits.
+        let mut requests = HashMap::new();
+        requests.insert(
+            "cpu".to_string(),
+            ResourceQuantity {
+                value: 250,
+                unit: ResourceUnit::Millicores,
+            },
+        );
+        requests.insert(
+            "memory".to_string(),
+            ResourceQuantity {
+                value: 128 * 1024 * 1024,
+                unit: ResourceUnit::Bytes,
+            },
+        );
+        let mut limits = HashMap::new();
+        limits.insert(
+            "cpu".to_string(),
+            ResourceQuantity {
+                value: 500,
+                unit: ResourceUnit::Millicores,
+            },
+        );
+        pod.containers[0].resources = ResourceRequirements { requests, limits };
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let status = pm.status.get(&pod.uid).unwrap();
+        assert_eq!(status.container_statuses.len(), 1);
+        let res = status.container_statuses[0]
+            .resources
+            .as_ref()
+            .expect("resources must be populated from container spec");
+        assert_eq!(
+            res.requests.get("cpu").map(|q| q.value),
+            Some(250),
+            "cpu request should be 250m"
+        );
+        assert_eq!(
+            res.limits.get("cpu").map(|q| q.value),
+            Some(500),
+            "cpu limit should be 500m"
+        );
     }
 
     #[tokio::test]
@@ -8179,6 +8493,159 @@ mod tests {
         assert!(
             map.get(&cid_str).is_none(),
             "entry should be removed from readiness map when container no longer exists"
+        );
+    }
+
+    // --- NodeAuthorizer transient-403 detection tests ---
+
+    #[test]
+    fn test_is_node_authz_transient_error_detects_no_relationship() {
+        let err = KubeletError::Runtime(
+            "failed to fetch ConfigMap 'kube-root-ca.crt' for projected volume: \
+             ApiError: configmaps \"kube-root-ca.crt\" is forbidden: User \
+             \"system:node:localhost.localdomain\" cannot get resource \"configmaps\" \
+             in API group \"\" in the namespace \"default\": no relationship found \
+             between node 'localhost.localdomain' and this object: Forbidden"
+                .to_string(),
+        );
+        assert!(
+            is_node_authz_transient_error(&err),
+            "should detect NodeAuthorizer 403 as transient"
+        );
+    }
+
+    #[test]
+    fn test_is_node_authz_transient_error_ignores_permanent_forbidden() {
+        // A 403 that isn't from the NodeAuthorizer should not be treated as transient.
+        let err = KubeletError::Runtime(
+            "failed to fetch ConfigMap 'my-secret' for projected volume: \
+             ApiError: configmaps \"my-secret\" is forbidden: User \
+             \"system:node:worker\" cannot get resource \"configmaps\" \
+             in API group \"\" in the namespace \"default\": \
+             User does not have permission"
+                .to_string(),
+        );
+        assert!(
+            !is_node_authz_transient_error(&err),
+            "ordinary permission denied must not be treated as NodeAuthorizer transient"
+        );
+    }
+
+    #[test]
+    fn test_is_node_authz_transient_error_ignores_not_found() {
+        let err = KubeletError::Runtime(
+            "failed to fetch ConfigMap 'missing' for projected volume: \
+             ApiError: configmaps \"missing\" not found"
+                .to_string(),
+        );
+        assert!(
+            !is_node_authz_transient_error(&err),
+            "not-found error must not be treated as NodeAuthorizer transient"
+        );
+    }
+
+    #[test]
+    fn test_is_node_authz_transient_error_ignores_non_runtime_err() {
+        let err = KubeletError::Storage("disk full".to_string());
+        assert!(!is_node_authz_transient_error(&err));
+    }
+
+    // --- Init container CrashLoopBackOff reporting tests ---
+
+    #[tokio::test]
+    async fn test_init_container_crash_loop_recorded_in_status() {
+        // After update_pod_status with crash_loop_backoff containing an init
+        // container name, the lifecycle state must record CrashLoopBackOff.
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-init-clbo", "pod-init-clbo");
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-fail".to_string(),
+            image: "busybox:latest".to_string(),
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        // Simulate the container being in CrashLoopBackOff.
+        state.restart_counts.insert("init-fail".to_string(), 3);
+        state.crash_loop_backoff.insert("init-fail".to_string());
+
+        worker.update_pod_status(&pod, &state).await;
+
+        let ls = pm.status.get(&pod.uid).unwrap();
+        let init_status = ls
+            .init_container_statuses
+            .iter()
+            .find(|s| s.name == "init-fail")
+            .expect("init container status must be present");
+
+        // The container should be in a Waiting state (CrashLoopBackOff).
+        assert!(
+            matches!(
+                init_status.state,
+                kubelet_core::pod::lifecycle::ContainerState::Waiting { .. }
+            ),
+            "init container in crash loop must be in Waiting state, got {:?}",
+            init_status.state
+        );
+        // ContainerStatus.restart_count is stored as restart_counts - 1 because
+        // the first run is count=0 (no restarts) and the first restart takes it
+        // to 1 which is displayed as restart_count=0.  With state.restart_counts=3
+        // the displayed value is 2.
+        assert_eq!(
+            init_status.restart_count, 2,
+            "restart_count must be restart_counts - 1"
+        );
+        // App containers (nginx) must still be in Waiting state — not started.
+        let app_status = ls
+            .container_statuses
+            .iter()
+            .find(|s| s.name == "nginx")
+            .expect("app container status must be present");
+        assert!(
+            matches!(
+                app_status.state,
+                kubelet_core::pod::lifecycle::ContainerState::Waiting { .. }
+            ),
+            "app container must be Waiting while init containers are crashing, got {:?}",
+            app_status.state
+        );
+    }
+
+    #[tokio::test]
+    async fn test_app_containers_not_started_while_init_failing() {
+        // Verifies that when init containers are present and failing, the app
+        // containers' status is Waiting (not Running), matching the Kubernetes
+        // contract that app containers must not start until all init containers
+        // have completed successfully.
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-init-appwait", "pod-init-appwait");
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-fail".to_string(),
+            image: "busybox:latest".to_string(),
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        // No sandbox / container IDs in state — init hasn't completed.
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let ls = pm.status.get(&pod.uid).unwrap();
+        // App container status must be Waiting.
+        let app_status = ls
+            .container_statuses
+            .iter()
+            .find(|s| s.name == "nginx") // make_pod creates a container named "nginx"
+            .expect("app container status must be present");
+        assert!(
+            matches!(
+                app_status.state,
+                kubelet_core::pod::lifecycle::ContainerState::Waiting { .. }
+            ),
+            "app container must be Waiting while init containers are still running, \
+             got {:?}",
+            app_status.state
         );
     }
 }

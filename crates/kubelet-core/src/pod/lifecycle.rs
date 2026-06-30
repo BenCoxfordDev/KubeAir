@@ -86,6 +86,10 @@ pub struct ContainerStatus {
     pub image_id: String,
     pub container_id: Option<String>,
     pub started: Option<bool>,
+    /// The resource requests/limits for this container. Included in the API
+    /// status so that InPlace resize tests can read `containerStatuses[x].resources`
+    /// without a nil-pointer panic.
+    pub resources: Option<crate::pod::ResourceRequirements>,
 }
 
 /// Full pod lifecycle status tracked internally by the kubelet.
@@ -103,6 +107,10 @@ pub struct PodLifecycleState {
     pub pod_ip: Option<String>,
     pub host_ip: Option<String>,
     pub nominated_node_name: Option<String>,
+    /// The last generation of the pod spec that the kubelet has processed.
+    /// Reported as `status.observedGeneration` to unblock controllers and
+    /// conformance tests that wait for observedGeneration >= 1.
+    pub observed_generation: Option<i64>,
 }
 
 impl Default for PodLifecycleState {
@@ -118,6 +126,7 @@ impl Default for PodLifecycleState {
             pod_ip: None,
             host_ip: None,
             nominated_node_name: None,
+            observed_generation: None,
         }
     }
 }
@@ -237,6 +246,7 @@ mod tests {
             image_id: "sha256:abc".to_string(),
             container_id: Some("ctr://abc123".to_string()),
             started: Some(true),
+            resources: None,
         }
     }
 
@@ -262,6 +272,7 @@ mod tests {
             image_id: "sha256:abc".to_string(),
             container_id: None,
             started: Some(false),
+            resources: None,
         }
     }
 
