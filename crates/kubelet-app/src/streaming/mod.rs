@@ -2831,10 +2831,16 @@ async fn collect_logs_body(
                         .unwrap_or(true)
                 });
             } else {
-                // current: entries at or after current container started
+                // current: entries at or after current container started.
+                // Allow a 2-second tolerance: the container runtime may
+                // record the first log line with a timestamp slightly before
+                // the started_at reported in pod status, which would cause
+                // the first log entry to be silently dropped (go e2e:
+                // pods.go:679 "Unexpected websocket logs: []").
+                let filter_start = start - chrono::Duration::seconds(2);
                 entries.retain(|e| {
                     DateTime::parse_from_rfc3339(&e.time)
-                        .map(|ts| ts.with_timezone(&Utc) >= start)
+                        .map(|ts| ts.with_timezone(&Utc) >= filter_start)
                         .unwrap_or(true)
                 });
             }
@@ -3756,5 +3762,106 @@ mod tests {
         let mut dec = SpdyHeaderDecoder::new();
         let decoded = dec.decode(&compressed);
         assert_eq!(decoded.get("streamtype"), Some(&"error".to_string()));
+    }
+
+    // --- Log time-filter tests (regression for pods.go:679) ---
+    //
+    // collect_logs_body applies a time-based filter so each container restart
+    // only sees its own log lines.  When want_previous=false, entries that fall
+    // within a 2-second tolerance *before* container.started_at must still be
+    // included, because the container runtime may record the very first line
+    // with a timestamp fractionally earlier than what the CRI reports as
+    // started_at.
+
+    fn make_entry(rfc3339: &str, msg: &str) -> LogEntry {
+        LogEntry {
+            log: msg.to_string(),
+            stream: "stdout".to_string(),
+            time: rfc3339.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_log_filter_exact_start_included() {
+        let start: DateTime<Utc> = "2024-01-01T00:00:00Z".parse().unwrap();
+        let filter_start = start - chrono::Duration::seconds(2);
+        let mut entries = vec![make_entry("2024-01-01T00:00:00Z", "first line\n")];
+        entries.retain(|e| {
+            DateTime::parse_from_rfc3339(&e.time)
+                .map(|ts| ts.with_timezone(&Utc) >= filter_start)
+                .unwrap_or(true)
+        });
+        assert_eq!(entries.len(), 1, "entry at started_at must be included");
+    }
+
+    #[test]
+    fn test_log_filter_within_tolerance_included() {
+        // Entry 1 second before started_at — must survive the 2s tolerance window.
+        let start: DateTime<Utc> = "2024-01-01T00:00:05Z".parse().unwrap();
+        let filter_start = start - chrono::Duration::seconds(2);
+        let mut entries = vec![make_entry("2024-01-01T00:00:04Z", "early line\n")];
+        entries.retain(|e| {
+            DateTime::parse_from_rfc3339(&e.time)
+                .map(|ts| ts.with_timezone(&Utc) >= filter_start)
+                .unwrap_or(true)
+        });
+        assert_eq!(
+            entries.len(),
+            1,
+            "entry within 2s tolerance before started_at must be included"
+        );
+    }
+
+    #[test]
+    fn test_log_filter_outside_tolerance_excluded() {
+        // Entry 3 seconds before started_at — must be dropped.
+        let start: DateTime<Utc> = "2024-01-01T00:00:05Z".parse().unwrap();
+        let filter_start = start - chrono::Duration::seconds(2);
+        let mut entries = vec![make_entry("2024-01-01T00:00:02Z", "old line\n")];
+        entries.retain(|e| {
+            DateTime::parse_from_rfc3339(&e.time)
+                .map(|ts| ts.with_timezone(&Utc) >= filter_start)
+                .unwrap_or(true)
+        });
+        assert_eq!(
+            entries.len(),
+            0,
+            "entry 3s before started_at must be excluded"
+        );
+    }
+
+    #[test]
+    fn test_log_filter_previous_mode_excludes_current() {
+        // previous=true: entries *before* started_at are kept; at or after are dropped.
+        let start: DateTime<Utc> = "2024-01-01T00:00:05Z".parse().unwrap();
+        let mut entries = vec![
+            make_entry("2024-01-01T00:00:04Z", "prev line\n"),
+            make_entry("2024-01-01T00:00:05Z", "current line\n"),
+        ];
+        entries.retain(|e| {
+            DateTime::parse_from_rfc3339(&e.time)
+                .map(|ts| ts.with_timezone(&Utc) < start)
+                .unwrap_or(true)
+        });
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].log, "prev line\n");
+    }
+
+    #[test]
+    fn test_log_filter_invalid_timestamp_passes_through() {
+        // An entry with an unparseable timestamp must not be dropped.
+        let start: DateTime<Utc> = "2024-01-01T00:00:05Z".parse().unwrap();
+        let filter_start = start - chrono::Duration::seconds(2);
+        let mut entries = vec![make_entry("not-a-date", "mystery line\n")];
+        entries.retain(|e| {
+            DateTime::parse_from_rfc3339(&e.time)
+                .map(|ts| ts.with_timezone(&Utc) >= filter_start)
+                .unwrap_or(true)
+        });
+        assert_eq!(
+            entries.len(),
+            1,
+            "entry with invalid timestamp must be passed through"
+        );
     }
 }
