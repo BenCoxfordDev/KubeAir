@@ -1767,6 +1767,18 @@ pub struct ExecQuery {
     pub tty: Option<bool>,
 }
 
+/// Bundled parameters for WebSocket exec/attach inner handlers.
+///
+/// Groups the five request-scoped fields to keep [`exec_handler_inner`] and
+/// [`attach_handler_inner`] within the argument-count limit.
+pub struct WsStreamParams {
+    pub ns: String,
+    pub pod_name: String,
+    pub query: ExecQuery,
+    pub headers: HeaderMap,
+    pub cert_cn: Option<String>,
+}
+
 /// Parse an exec query string, correctly handling repeated `command=` params.
 ///
 /// `axum::extract::Query` uses `serde_urlencoded` which only captures the last
@@ -2264,25 +2276,30 @@ pub async fn exec_handler(
     let query = parse_exec_query(raw_query.as_deref().unwrap_or(""));
     exec_handler_inner(
         ws,
-        ns,
-        pod_name,
-        query,
-        headers,
+        WsStreamParams {
+            ns,
+            pod_name,
+            query,
+            headers,
+            cert_cn: cert_cn.map(|c| c.0),
+        },
         state,
-        cert_cn.map(|c| c.0),
     )
     .await
 }
 
 pub async fn exec_handler_inner(
     ws: WebSocketUpgrade,
-    ns: String,
-    pod_name: String,
-    query: ExecQuery,
-    headers: HeaderMap,
+    params: WsStreamParams,
     state: StreamState,
-    cert_cn: Option<String>,
 ) -> Response {
+    let WsStreamParams {
+        ns,
+        pod_name,
+        query,
+        headers,
+        cert_cn,
+    } = params;
     let auth = match authorize_stream_request(
         &headers,
         &ns,
@@ -2324,25 +2341,30 @@ pub async fn attach_handler(
     let query = parse_exec_query(raw_query.as_deref().unwrap_or(""));
     attach_handler_inner(
         ws,
-        ns,
-        pod_name,
-        query,
-        headers,
+        WsStreamParams {
+            ns,
+            pod_name,
+            query,
+            headers,
+            cert_cn: cert_cn.map(|c| c.0),
+        },
         state,
-        cert_cn.map(|c| c.0),
     )
     .await
 }
 
 pub async fn attach_handler_inner(
     ws: WebSocketUpgrade,
-    ns: String,
-    pod_name: String,
-    query: ExecQuery,
-    headers: HeaderMap,
+    params: WsStreamParams,
     state: StreamState,
-    cert_cn: Option<String>,
 ) -> Response {
+    let WsStreamParams {
+        ns,
+        pod_name,
+        query,
+        headers,
+        cert_cn,
+    } = params;
     let auth = match authorize_stream_request(
         &headers,
         &ns,

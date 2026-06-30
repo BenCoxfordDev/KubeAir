@@ -133,6 +133,13 @@ pub fn cni_env(
 
 // -- CNI plugin executor -------------------------------------------------------
 
+/// Network identity of a container for a CNI plugin invocation.
+struct CniTarget<'a> {
+    container_id: &'a str,
+    netns: &'a str,
+    ifname: &'a str,
+}
+
 /// Executes CNI plugins as sub-processes.
 pub struct CniPluginExecutor {
     plugin_dir: PathBuf,
@@ -195,8 +202,17 @@ impl CniPluginExecutor {
         ifname: &str,
         config: &serde_json::Value,
     ) -> Result<CniResult> {
-        self.exec_plugin("ADD", plugin_type, container_id, netns, ifname, config)
-            .await
+        self.exec_plugin(
+            "ADD",
+            plugin_type,
+            CniTarget {
+                container_id,
+                netns,
+                ifname,
+            },
+            config,
+        )
+        .await
     }
 
     /// Execute a CNI plugin with DEL command.
@@ -208,8 +224,17 @@ impl CniPluginExecutor {
         ifname: &str,
         config: &serde_json::Value,
     ) -> Result<()> {
-        self.exec_plugin("DEL", plugin_type, container_id, netns, ifname, config)
-            .await?;
+        self.exec_plugin(
+            "DEL",
+            plugin_type,
+            CniTarget {
+                container_id,
+                netns,
+                ifname,
+            },
+            config,
+        )
+        .await?;
         Ok(())
     }
 
@@ -222,8 +247,17 @@ impl CniPluginExecutor {
         ifname: &str,
         config: &serde_json::Value,
     ) -> Result<()> {
-        self.exec_plugin("CHECK", plugin_type, container_id, netns, ifname, config)
-            .await?;
+        self.exec_plugin(
+            "CHECK",
+            plugin_type,
+            CniTarget {
+                container_id,
+                netns,
+                ifname,
+            },
+            config,
+        )
+        .await?;
         Ok(())
     }
 
@@ -231,11 +265,14 @@ impl CniPluginExecutor {
         &self,
         command: &str,
         plugin_type: &str,
-        container_id: &str,
-        netns: &str,
-        ifname: &str,
+        target: CniTarget<'_>,
         config: &serde_json::Value,
     ) -> Result<CniResult> {
+        let CniTarget {
+            container_id,
+            netns,
+            ifname,
+        } = target;
         let plugin_path = self.plugin_dir.join(plugin_type);
         if !plugin_path.exists() {
             return Err(KubeletError::Network(format!(

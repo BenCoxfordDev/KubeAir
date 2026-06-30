@@ -39,6 +39,16 @@ use tracing::{debug, error, info, warn};
 
 // -- Result types --------------------------------------------------------------
 
+/// The three optional probes for a single container.
+///
+/// Groups the liveness, readiness, and startup probes to keep [`ProbeManager::start_probes`]
+/// within the argument-count limit and to make call sites self-documenting.
+pub struct ContainerProbes<'a> {
+    pub liveness: Option<&'a Probe>,
+    pub readiness: Option<&'a Probe>,
+    pub startup: Option<&'a Probe>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProbeKind {
     Liveness,
@@ -291,10 +301,13 @@ impl ProbeManager {
         pod_uid: &PodUID,
         container_name: &str,
         container_id: &ContainerID,
-        liveness: Option<&Probe>,
-        readiness: Option<&Probe>,
-        startup: Option<&Probe>,
+        probes: ContainerProbes<'_>,
     ) {
+        let ContainerProbes {
+            liveness,
+            readiness,
+            startup,
+        } = probes;
         let runner = Arc::new(ProbeRunner::new(
             self.runtime.clone(),
             self.result_tx.clone(),
@@ -441,7 +454,16 @@ mod tests {
             success_threshold: 1,
             failure_threshold: 3,
         };
-        mgr.start_probes(&uid, "app", &cid, Some(&probe), None, None);
+        mgr.start_probes(
+            &uid,
+            "app",
+            &cid,
+            ContainerProbes {
+                liveness: Some(&probe),
+                readiness: None,
+                startup: None,
+            },
+        );
         assert_eq!(mgr.active_probe_count(), 1);
         mgr.stop_probes(&uid, "app");
         assert_eq!(mgr.active_probe_count(), 0);

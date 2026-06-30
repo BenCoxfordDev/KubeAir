@@ -65,6 +65,16 @@ pub struct ProjectedVolumeManager {
     secret_mgr: SecretVolumeManager,
 }
 
+/// Resolved data for a projected volume mount.
+///
+/// Groups the three collections of caller-fetched data to keep
+/// [`ProjectedVolumeManager::mount`] within the argument-count limit.
+pub struct ProjectedVolumeData<'a> {
+    pub configmaps: &'a std::collections::HashMap<String, ConfigMapData>,
+    pub secrets: &'a std::collections::HashMap<String, SecretData>,
+    pub sa_token: Option<&'a ServiceAccountToken>,
+}
+
 impl ProjectedVolumeManager {
     pub fn new(base_dir: impl Into<PathBuf>) -> Self {
         let base = base_dir.into();
@@ -80,11 +90,13 @@ impl ProjectedVolumeManager {
         sources: &[ProjectedVolumeSource],
         target_path: &Path,
         default_mode: u32,
-        // Resolved data (caller fetches from API server).
-        configmaps: &std::collections::HashMap<String, ConfigMapData>,
-        secrets: &std::collections::HashMap<String, SecretData>,
-        sa_token: Option<&ServiceAccountToken>,
+        data: ProjectedVolumeData<'_>,
     ) -> Result<()> {
+        let ProjectedVolumeData {
+            configmaps,
+            secrets,
+            sa_token,
+        } = data;
         std::fs::create_dir_all(target_path)
             .map_err(|e| KubeletError::Storage(format!("create projected dir: {}", e)))?;
 
@@ -215,8 +227,17 @@ mod tests {
             optional: false,
         }];
 
-        mgr.mount(&sources, &target, 0o644, &cms, &HashMap::new(), None)
-            .unwrap();
+        mgr.mount(
+            &sources,
+            &target,
+            0o644,
+            ProjectedVolumeData {
+                configmaps: &cms,
+                secrets: &HashMap::new(),
+                sa_token: None,
+            },
+        )
+        .unwrap();
         assert!(target.join("key1").exists());
     }
 
@@ -235,9 +256,11 @@ mod tests {
             &sources,
             &target,
             0o644,
-            &HashMap::new(),
-            &HashMap::new(),
-            None,
+            ProjectedVolumeData {
+                configmaps: &HashMap::new(),
+                secrets: &HashMap::new(),
+                sa_token: None,
+            },
         )
         .unwrap();
     }
@@ -258,9 +281,11 @@ mod tests {
                 &sources,
                 &target,
                 0o644,
-                &HashMap::new(),
-                &HashMap::new(),
-                None
+                ProjectedVolumeData {
+                    configmaps: &HashMap::new(),
+                    secrets: &HashMap::new(),
+                    sa_token: None,
+                }
             )
             .is_err()
         );
@@ -285,9 +310,11 @@ mod tests {
             &sources,
             &target,
             0o644,
-            &HashMap::new(),
-            &HashMap::new(),
-            Some(&token),
+            ProjectedVolumeData {
+                configmaps: &HashMap::new(),
+                secrets: &HashMap::new(),
+                sa_token: Some(&token),
+            },
         )
         .unwrap();
         assert!(target.join("token").exists());
@@ -328,8 +355,17 @@ mod tests {
         }];
 
         // Mount with defaultMode 0o644 (world-readable).
-        mgr.mount(&sources, &target, 0o644, &HashMap::new(), &secrets, None)
-            .unwrap();
+        mgr.mount(
+            &sources,
+            &target,
+            0o644,
+            ProjectedVolumeData {
+                configmaps: &HashMap::new(),
+                secrets: &secrets,
+                sa_token: None,
+            },
+        )
+        .unwrap();
 
         let meta = std::fs::metadata(target.join("api-key")).unwrap();
         let mode = meta.permissions().mode() & 0o777;
@@ -360,8 +396,17 @@ mod tests {
             optional: false,
         }];
 
-        mgr.mount(&sources, &target, 0o600, &HashMap::new(), &secrets, None)
-            .unwrap();
+        mgr.mount(
+            &sources,
+            &target,
+            0o600,
+            ProjectedVolumeData {
+                configmaps: &HashMap::new(),
+                secrets: &secrets,
+                sa_token: None,
+            },
+        )
+        .unwrap();
 
         let meta = std::fs::metadata(target.join("api-key")).unwrap();
         let mode = meta.permissions().mode() & 0o777;
@@ -409,8 +454,17 @@ mod tests {
             },
         ];
 
-        mgr.mount(&sources, &target, 0o420, &cms, &secrets, None)
-            .unwrap();
+        mgr.mount(
+            &sources,
+            &target,
+            0o420,
+            ProjectedVolumeData {
+                configmaps: &cms,
+                secrets: &secrets,
+                sa_token: None,
+            },
+        )
+        .unwrap();
 
         let cm_mode = std::fs::metadata(target.join("config.yaml"))
             .unwrap()

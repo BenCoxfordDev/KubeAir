@@ -25,7 +25,9 @@ limitations under the License.
 //!   with defaultMode set [LinuxOnly]
 
 use kubelet_adapters::volume::configmap::ConfigMapData;
-use kubelet_adapters::volume::projected::{ProjectedVolumeManager, ProjectedVolumeSource};
+use kubelet_adapters::volume::projected::{
+    ProjectedVolumeData, ProjectedVolumeManager, ProjectedVolumeSource,
+};
 use kubelet_adapters::volume::secret::SecretData;
 use std::collections::HashMap;
 use tempfile::TempDir;
@@ -74,8 +76,17 @@ fn integ_projected_secret_respects_default_mode_644() {
         optional: false,
     }];
 
-    mgr.mount(&sources, &target, 0o644, &HashMap::new(), &secrets, None)
-        .unwrap();
+    mgr.mount(
+        &sources,
+        &target,
+        0o644,
+        ProjectedVolumeData {
+            configmaps: &HashMap::new(),
+            secrets: &secrets,
+            sa_token: None,
+        },
+    )
+    .unwrap();
 
     let mode = std::fs::metadata(target.join("token"))
         .unwrap()
@@ -109,8 +120,17 @@ fn integ_projected_secret_respects_default_mode_600() {
         optional: false,
     }];
 
-    mgr.mount(&sources, &target, 0o600, &HashMap::new(), &secrets, None)
-        .unwrap();
+    mgr.mount(
+        &sources,
+        &target,
+        0o600,
+        ProjectedVolumeData {
+            configmaps: &HashMap::new(),
+            secrets: &secrets,
+            sa_token: None,
+        },
+    )
+    .unwrap();
 
     let mode = std::fs::metadata(target.join("token"))
         .unwrap()
@@ -154,8 +174,17 @@ fn integ_projected_configmap_and_secret_share_default_mode() {
     ];
 
     // Use an unusual mode to make it obvious if either source ignores it.
-    mgr.mount(&sources, &target, 0o440, &cms, &secrets, None)
-        .unwrap();
+    mgr.mount(
+        &sources,
+        &target,
+        0o440,
+        ProjectedVolumeData {
+            configmaps: &cms,
+            secrets: &secrets,
+            sa_token: None,
+        },
+    )
+    .unwrap();
 
     let cm_mode = std::fs::metadata(target.join("app.conf"))
         .unwrap()

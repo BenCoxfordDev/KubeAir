@@ -4,8 +4,9 @@
 load("@gazelle//:def.bzl", "gazelle")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
-# Export rustfmt.toml for Bazel's rustfmt aspect
+# Export config files for Bazel aspects
 exports_files([
+    "clippy.toml",
     "rustfmt.toml",
     "Cargo.toml",
     "Cargo.lock",
