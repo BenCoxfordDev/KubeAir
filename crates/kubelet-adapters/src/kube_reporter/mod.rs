@@ -261,7 +261,7 @@ impl NodeReporter for KubeNodeReporter {
         // Use Apply patch with field manager to avoid conflicts with other controllers
         let patch_params = PatchParams::apply("kubelet").force();
         let status_obj = build_pod_status_json(
-            &phase,
+            phase,
             reason.as_deref(),
             &conditions,
             &container_statuses,
@@ -711,6 +711,18 @@ fn lifecycle_container_status_to_k8s(
         container_id: cs.container_id.clone(),
         started,
         resources: cs.resources.as_ref().map(resource_requirements_to_k8s),
+        allocated_resources: if cs.allocated_resources.is_empty() {
+            None
+        } else {
+            use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+            use std::collections::BTreeMap;
+            Some(
+                cs.allocated_resources
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Quantity(resource_quantity_to_string(v))))
+                    .collect::<BTreeMap<String, Quantity>>(),
+            )
+        },
         ..Default::default()
     }
 }
@@ -2344,6 +2356,7 @@ mod tests {
             container_id: Some("containerd://xyz".to_string()),
             started: Some(true),
             resources: Some(ResourceRequirements { requests, limits }),
+            allocated_resources: Default::default(),
         };
 
         let k8s_cs = lifecycle_container_status_to_k8s(&cs);
@@ -2375,6 +2388,7 @@ mod tests {
             container_id: None,
             started: Some(false),
             resources: None,
+            allocated_resources: Default::default(),
         };
 
         let k8s_cs = lifecycle_container_status_to_k8s(&cs);

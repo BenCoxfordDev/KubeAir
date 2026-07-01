@@ -2652,35 +2652,34 @@ pub async fn log_websocket_handler(
         Err(resp) => return resp,
     };
 
-    let (effective_container, body) = match collect_logs_body(&state, &ns, &pod_name, &query).await
-    {
-        Ok(v) => v,
-        Err((status, msg, err_key)) => {
-            streaming_record_error("log", err_key);
-            let reason = match status {
-                StatusCode::NOT_FOUND => "NotFound",
-                StatusCode::BAD_REQUEST => "BadRequest",
-                StatusCode::SERVICE_UNAVAILABLE => "ServiceUnavailable",
-                StatusCode::INTERNAL_SERVER_ERROR => "InternalError",
-                _ => "Failure",
-            };
-            return k8s_error_response(status, reason, &msg);
-        }
-    };
-
-    streaming_record_bytes("log", "out", body.len());
-    streaming_record_latency("log", request_started.elapsed().as_secs_f64());
-    audit_stream_event(
-        "log",
-        &auth.username,
-        &ns,
-        &pod_name,
-        Some(&effective_container),
-        "allowed",
-    );
-
+    // Respond with the HTTP 101 upgrade immediately so the API-server WebSocket
+    // proxy does not time out waiting for the handshake.  Log collection happens
+    // inside the upgrade callback; any error silently closes the socket (the
+    // API-server proxy treats that as an empty/closed stream, which is
+    // indistinguishable from the server-side-error path for a WebSocket log
+    // connection).
     ws.protocols([K8S_LOG_SUBPROTOCOL])
         .on_upgrade(move |mut socket| async move {
+            let (effective_container, body) =
+                match collect_logs_body(&state, &ns, &pod_name, &query).await {
+                    Ok(v) => v,
+                    Err((_, _, err_key)) => {
+                        streaming_record_error("log", err_key);
+                        return;
+                    }
+                };
+
+            streaming_record_bytes("log", "out", body.len());
+            streaming_record_latency("log", request_started.elapsed().as_secs_f64());
+            audit_stream_event(
+                "log",
+                &auth.username,
+                &ns,
+                &pod_name,
+                Some(&effective_container),
+                "allowed",
+            );
+
             if !body.is_empty() {
                 let _ = socket.send(Message::Binary(body.into_bytes())).await;
             }

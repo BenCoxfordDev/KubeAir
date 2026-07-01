@@ -3215,6 +3215,7 @@ impl PodWorker {
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(matches!(ctr_state, ContainerState::Running { .. })),
                 resources: Some(init_ctr.resources.clone()),
+                allocated_resources: init_ctr.resources.requests.clone(),
             });
         }
         ls.init_container_statuses = new_init_statuses;
@@ -3465,6 +3466,7 @@ impl PodWorker {
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(ready),
                 resources: Some(ctr.resources.clone()),
+                allocated_resources: ctr.resources.requests.clone(),
             });
         }
 
@@ -3533,6 +3535,7 @@ impl PodWorker {
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(matches!(ctr_state, ContainerState::Running { .. })),
                 resources: Some(ec.resources.clone()),
+                allocated_resources: ec.resources.requests.clone(),
             });
         }
         ls.ephemeral_container_statuses = new_ephemeral_statuses;
