@@ -90,6 +90,12 @@ pub struct ContainerStatus {
     /// status so that InPlace resize tests can read `containerStatuses[x].resources`
     /// without a nil-pointer panic.
     pub resources: Option<crate::pod::ResourceRequirements>,
+    /// Resources allocated by the node for this container (KEP-1287).
+    /// Initially equal to `spec.containers[*].resources.requests`; updated on
+    /// successful in-place resize admission.  Serialised as
+    /// `containerStatuses[*].allocatedResources` in the Kubernetes API.
+    #[serde(default)]
+    pub allocated_resources: std::collections::HashMap<String, crate::types::ResourceQuantity>,
 }
 
 /// Full pod lifecycle status tracked internally by the kubelet.
@@ -247,6 +253,7 @@ mod tests {
             container_id: Some("ctr://abc123".to_string()),
             started: Some(true),
             resources: None,
+            allocated_resources: Default::default(),
         }
     }
 
@@ -273,6 +280,7 @@ mod tests {
             container_id: None,
             started: Some(false),
             resources: None,
+            allocated_resources: Default::default(),
         }
     }
 

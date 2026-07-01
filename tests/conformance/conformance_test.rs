@@ -117,6 +117,7 @@ fn running(name: &str) -> ContainerStatus {
         container_id: Some("ctr://abc".to_string()),
         started: Some(true),
         resources: None,
+        allocated_resources: Default::default(),
     }
 }
 
@@ -139,6 +140,7 @@ fn terminated(name: &str, exit_code: i32) -> ContainerStatus {
         container_id: None,
         started: Some(false),
         resources: None,
+        allocated_resources: Default::default(),
     }
 }
 
@@ -157,6 +159,7 @@ fn waiting(name: &str) -> ContainerStatus {
         container_id: None,
         started: Some(false),
         resources: None,
+        allocated_resources: Default::default(),
     }
 }
 
@@ -667,6 +670,7 @@ fn conformance_init_container_ready_true_when_completed() {
             container_id: None,
             started: Some(false),
             resources: None,
+            allocated_resources: Default::default(),
         };
         mgr.set(pod.uid.clone(), ls);
     }

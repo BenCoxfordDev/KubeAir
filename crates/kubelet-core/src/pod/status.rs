@@ -100,6 +100,7 @@ impl PodStatusManager {
                 container_id: None,
                 started: Some(false),
                 resources: Some(c.resources.clone()),
+                allocated_resources: c.resources.requests.clone(),
             })
             .collect();
 
@@ -120,6 +121,7 @@ impl PodStatusManager {
                 container_id: None,
                 started: Some(false),
                 resources: Some(c.resources.clone()),
+                allocated_resources: c.resources.requests.clone(),
             })
             .collect();
 

@@ -45,6 +45,7 @@ fn test_last_termination_state_preserved_after_restart() {
             container_id: Some("containerd://old-id".to_string()),
             started: Some(false),
             resources: None,
+            allocated_resources: Default::default(),
         }],
         init_container_statuses: vec![],
         ephemeral_container_statuses: vec![],
@@ -71,6 +72,7 @@ fn test_last_termination_state_preserved_after_restart() {
         container_id: Some("containerd://new-id".to_string()),
         started: Some(true),
         resources: None,
+        allocated_resources: Default::default(),
     };
 
     // Verify last_state is populated
@@ -105,6 +107,7 @@ fn test_container_state_transitions_from_running_to_terminated() {
         container_id: Some("containerd://id123".to_string()),
         started: Some(true),
         resources: None,
+        allocated_resources: Default::default(),
     };
 
     // Container exits
@@ -147,6 +150,7 @@ fn test_restart_count_increments_correctly() {
         container_id: Some("containerd://id123".to_string()),
         started: Some(false),
         resources: None,
+        allocated_resources: Default::default(),
     };
 
     // Simulate restart
@@ -184,6 +188,7 @@ fn test_multiple_restarts_preserve_last_state() {
         container_id: Some("containerd://id123".to_string()),
         started: Some(true),
         resources: None,
+        allocated_resources: Default::default(),
     };
 
     // First crash
@@ -261,6 +266,7 @@ fn test_container_state_waiting_for_image_pull() {
         container_id: None,
         started: Some(false),
         resources: None,
+        allocated_resources: Default::default(),
     };
 
     assert!(
