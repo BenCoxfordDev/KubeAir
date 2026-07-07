@@ -72,27 +72,20 @@ require_cmd() {
 
 require_cmd "$CONTAINER_RUNTIME" "$CONTAINER_RUNTIME"
 
-# ── Rootless podman guard ─────────────────────────────────────────────────────
-# Creating bridge network interfaces (required by the CNI bridge plugin) fails
-# with EPERM inside a rootless container even with --privileged, because the
-# host user doesn't have CAP_NET_ADMIN in the real root network namespace.
-# The tests will appear to run but all pods will fail with SandboxCreationFailed.
-#
-# Fix: switch the podman machine to rootful (one-time setup):
-#   podman machine stop
-#   podman machine set --rootful
-#   podman machine start
+# ── Network mode selection ────────────────────────────────────────────────────
+# Rootful podman: --network=host shares the host network namespace, which lets
+# CNI create bridge interfaces directly.
+# Rootless podman: --network=host is not available; use --network=pasta instead.
+# pasta is a user-space network stack that provides NAT-based internet access
+# from inside the container without requiring host network namespace access.
+# CNI bridge interfaces created inside the container work fine because they live
+# in the container's own network namespace (CAP_NET_ADMIN is granted there).
+NETWORK_MODE="host"
 if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
   if podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null | grep -q "^true$"; then
-    die "podman is running in rootless mode, which cannot create bridge network interfaces.
-  The go-e2e suite needs a rootful container to set up CNI pod networking.
-
-  Fix (one-time):
-    podman machine stop
-    podman machine set --rootful
-    podman machine start
-
-  Then re-run: just go-e2e"
+    log "podman is rootless — using --network pasta for internet access inside the container."
+    log "(rootful mode uses --network=host; switch with: podman machine set --rootful)"
+    NETWORK_MODE="pasta"
   fi
 fi
 
@@ -128,8 +121,10 @@ step "Launching container (--privileged)"
 
 # Kill any stale containers from previous runs that may still be holding ports
 log "Cleaning up stale containers from previous runs..."
-"$CONTAINER_RUNTIME" ps -a --filter "ancestor=$BUILD_IMAGE" -q 2>/dev/null \
-  | xargs -r "$CONTAINER_RUNTIME" rm -f 2>/dev/null || true
+_stale_ids=$("$CONTAINER_RUNTIME" ps -a --filter "ancestor=$BUILD_IMAGE" -q 2>/dev/null || true)
+if [[ -n "$_stale_ids" ]]; then
+  echo "$_stale_ids" | xargs "$CONTAINER_RUNTIME" rm -f 2>/dev/null || true
+fi
 
 mkdir -p "${HOME}/.cache/bazel"
 
@@ -137,7 +132,7 @@ mkdir -p "${HOME}/.cache/bazel"
   --rm \
   --privileged \
   --cgroupns=host \
-  --network=host \
+  --network="$NETWORK_MODE" \
   --ulimit nofile=65536:65536 \
   -v "$REPO_ROOT:/workspace:z" \
   -v "$ARTIFACT_DIR:/artifacts:z" \

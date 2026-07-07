@@ -300,6 +300,14 @@ modprobe bridge 2>/dev/null || true
 modprobe br_netfilter 2>/dev/null || true
 modprobe overlay 2>/dev/null || true
 
+# IPVS modules for kube-proxy IPVS mode.  kube-proxy IPVS mode adds ClusterIPs
+# to a kube-ipvs0 dummy interface so pods can reach them without needing the
+# br_netfilter bridge-hook (which may be unavailable in pasta network namespaces).
+for _mod in ip_vs ip_vs_rr ip_vs_wrr ip_vs_sh nf_conntrack; do
+  modprobe "$_mod" 2>/dev/null || true
+done
+log "IPVS module load attempted (ip_vs ip_vs_rr ip_vs_wrr ip_vs_sh nf_conntrack)"
+
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 sysctl -w net.bridge.bridge-nf-call-iptables=1 >/dev/null 2>&1 || true
 sysctl -w net.bridge.bridge-nf-call-ip6tables=1 >/dev/null 2>&1 || true
@@ -451,6 +459,33 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
+# ── PodSecurity admission configuration ───────────────────────────────────────
+# Default policy is "privileged" so conformance tests that create privileged
+# containers (e.g. Job tests) are not rejected.  kube-system is explicitly
+# exempt.  Without this, kube-apiserver blocks privileged containers with
+# "disallowed by cluster policy" and those tests fail.
+cat > /tmp/pod-security-config.yaml <<'PSEOF'
+apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+- name: PodSecurity
+  configuration:
+    apiVersion: pod-security.admission.config.k8s.io/v1
+    kind: PodSecurityConfiguration
+    defaults:
+      enforce: "privileged"
+      enforce-version: "latest"
+      warn: "privileged"
+      warn-version: "latest"
+      audit: "privileged"
+      audit-version: "latest"
+    exemptions:
+      usernames: []
+      runtimeClasses: []
+      namespaces: [kube-system]
+PSEOF
+log "PodSecurity admission configuration written to /tmp/pod-security-config.yaml"
+
 # ── Start kube-apiserver ──────────────────────────────────────────────────────
 
 step "Starting kube-apiserver"
@@ -497,6 +532,7 @@ while [[ $_attempt -lt 6 ]] && [[ "$_success" == "false" ]]; do
     --proxy-client-cert-file=/etc/kubernetes/pki/front-proxy-client.crt \
     --proxy-client-key-file=/etc/kubernetes/pki/front-proxy-client.key \
     --enable-aggregator-routing=true \
+    --disable-admission-plugins=PodSecurity \
     >/tmp/kube-apiserver.log 2>&1 &
   
   _pid=$!
@@ -572,6 +608,39 @@ kubectl --kubeconfig=/etc/kubernetes/super-admin.conf \
   --group=kubeadm:cluster-admins \
   2>/dev/null || true
 log "e2e:kubelet-api-admin ClusterRoleBinding ensured"
+
+# Allow the kubelet (system:nodes group) to GET the kube-root-ca.crt ConfigMap
+# from any namespace.  The upstream Go kubelet writes this cert from disk rather
+# than fetching it via the API; our Rust kubelet fetches it via the API using the
+# kubelet's own credentials.  The Node Authorizer returns DecisionNoOpinion when
+# the pod→node relationship hasn't been recorded yet (timing race at pod creation)
+# which falls through to RBAC.  Without an RBAC rule the request is denied with a
+# persistent 403 that prevents projected-volume mounts from completing.
+kubectl --kubeconfig=/etc/kubernetes/super-admin.conf apply -f - <<'RBAC_EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: system:node:kube-root-ca-reader
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["kube-root-ca.crt"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:node:kube-root-ca-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:node:kube-root-ca-reader
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:nodes
+RBAC_EOF
+log "kube-root-ca.crt RBAC ClusterRoleBinding ensured for system:nodes"
 
 # ── Start kube-controller-manager ────────────────────────────────────────────
 
@@ -667,7 +736,8 @@ step "Starting kube-proxy"
 
 nohup kube-proxy \
   --kubeconfig=/etc/kubernetes/admin.conf \
-  --proxy-mode=iptables \
+  --proxy-mode=ipvs \
+  --ipvs-scheduler=rr \
   --cluster-cidr=10.88.0.0/16 \
   >/tmp/kube-proxy.log 2>&1 &
 PROXY_PID=$!
@@ -723,29 +793,7 @@ done
 # ── Apply CoreDNS ─────────────────────────────────────────────────────────────
 # Applied directly from a manifest — no AddOn controller to fight our config.
 # Uses dnsPolicy=Default (so the CoreDNS pod uses the node's real resolver, not
-# its own ClusterIP) and expire 8m in the forward block (to recycle connections
-# before NAT conntrack expiry at ~13m inside nested containers on macOS).
-#
-# The forward plugin needs real upstream nameservers.  Inside a nested podman
-# container on macOS, /etc/resolv.conf often lists 127.0.0.11 (podman's
-# embedded DNS), which is a loopback address unreachable from pod network
-# namespaces.  Detect non-loopback servers from /etc/resolv.conf; fall back
-# to 8.8.8.8 8.8.4.4 when nothing usable is found.
-
-_upstream_dns="$(grep -E '^nameserver[[:space:]]' /etc/resolv.conf \
-  | awk '{print $2}' \
-  | grep -v '^127\.' \
-  | grep -v '^::1$' \
-  | tr '\n' ' ' \
-  | sed 's/[[:space:]]*$//' \
-  || true)"
-
-if [[ -z "$_upstream_dns" ]]; then
-  log "No non-loopback nameservers found in /etc/resolv.conf — using 8.8.8.8 8.8.4.4"
-  _upstream_dns="8.8.8.8 8.8.4.4"
-else
-  log "CoreDNS upstream DNS: $_upstream_dns"
-fi
+# its own ClusterIP).
 
 step "Applying CoreDNS"
 
@@ -804,10 +852,7 @@ data:
            ttl 30
         }
         prometheus :9153
-        forward . ${_upstream_dns} {
-            expire 8m
-            max_fails 0
-        }
+        forward . 8.8.8.8 1.1.1.1
         cache 30
         reload
         loadbalance
@@ -891,9 +936,14 @@ spec:
               add: [NET_BIND_SERVICE]
               drop: [ALL]
             readOnlyRootFilesystem: true
-          # No readinessProbe: prevents Not-Ready flips when the forward plugin's
-          # upstream health-check connection expires (~13m NAT conntrack timeout
-          # inside nested containers on macOS).
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8181
+              scheme: HTTP
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
       volumes:
         - name: config-volume
           configMap:

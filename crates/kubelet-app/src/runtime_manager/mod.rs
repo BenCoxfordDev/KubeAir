@@ -37,7 +37,7 @@ use kubelet_core::types::PodUID;
 use kubelet_ports::driven::container_runtime::{ContainerRuntime, ImageManager};
 use kubelet_ports::driven::node_reporter::NodeReporter;
 use kubelet_ports::driven::storage::VolumeManager;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -66,6 +66,9 @@ pub struct RuntimeManager {
     /// Per-pod sync execution flags. Ensures one active sync per pod and
     /// coalesces bursts of updates into one trailing sync.
     sync_slots: Arc<Mutex<HashMap<PodUID, PodSyncSlot>>>,
+    /// UIDs of pods currently being deleted. These are excluded from
+    /// `active_pod_count` even if their sync slot is still running.
+    deleting_pods: Arc<Mutex<HashSet<PodUID>>>,
 }
 
 impl RuntimeManager {
@@ -115,6 +118,7 @@ impl RuntimeManager {
             pleg: Arc::new(Mutex::new(pleg)),
             pod_states: Arc::new(Mutex::new(HashMap::new())),
             sync_slots: Arc::new(Mutex::new(HashMap::new())),
+            deleting_pods: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -141,13 +145,16 @@ impl RuntimeManager {
     /// that `incoming` also requests.  Returns a human-readable conflict
     /// description, or `None` if the pod can be admitted.
     fn check_host_port_conflict(&self, incoming: &PodSpec) -> Option<String> {
-        // Collect (port, protocol) pairs that the incoming pod needs.
-        let needed: Vec<(u16, &kubelet_core::pod::Protocol)> = incoming
+        // Collect (port, protocol, host_ip) triples that the incoming pod needs.
+        let needed: Vec<(u16, &kubelet_core::pod::Protocol, Option<&str>)> = incoming
             .containers
             .iter()
             .chain(incoming.init_containers.iter())
             .flat_map(|c| &c.ports)
-            .filter_map(|p| p.host_port.map(|hp| (hp, &p.protocol)))
+            .filter_map(|p| {
+                p.host_port
+                    .map(|hp| (hp, &p.protocol, p.host_ip.as_deref()))
+            })
             .collect();
 
         if needed.is_empty() {
@@ -175,10 +182,11 @@ impl RuntimeManager {
             {
                 for port in &ctr.ports {
                     let Some(ehp) = port.host_port else { continue };
-                    if needed
-                        .iter()
-                        .any(|&(hp, proto)| hp == ehp && proto == &port.protocol)
-                    {
+                    if needed.iter().any(|&(hp, proto, host_ip)| {
+                        hp == ehp
+                            && proto == &port.protocol
+                            && host_ports_overlap(host_ip, port.host_ip.as_deref())
+                    }) {
                         return Some(format!(
                             "host port {}/{:?} already in use by pod {} ({})",
                             ehp, port.protocol, existing.pod_ref.name, existing.uid
@@ -432,6 +440,10 @@ impl RuntimeManager {
         let reporter = self.reporter.clone();
         let pod_manager = self.pod_manager.clone();
         let sync_slots = self.sync_slots.clone();
+        let deleting_pods = self.deleting_pods.clone();
+
+        // Mark pod as being deleted before spawning so active_pod_count excludes it.
+        deleting_pods.lock().await.insert(pod.uid.clone());
 
         tokio::spawn(async move {
             let state = {
@@ -490,6 +502,9 @@ impl RuntimeManager {
             if let Err(e) = reporter.delete_pod(&pod.pod_ref, &pod.uid).await {
                 warn!(pod = %pod.pod_ref, error = %e, "Failed to force-delete pod from API server");
             }
+
+            // Pod is fully cleaned up; remove from deleting set.
+            deleting_pods.lock().await.remove(&pod.uid);
 
             info!(pod = %pod.pod_ref, "Pod cleanup completed");
         });
@@ -595,10 +610,36 @@ impl RuntimeManager {
         self.pod_states.lock().await.clone()
     }
 
-    /// Number of pods currently being managed.
+    /// Number of pods currently being managed (includes pods whose sync is
+    /// in progress, since their state is temporarily removed from pod_states
+    /// during the sync loop). Pods actively being deleted are excluded.
     pub async fn active_pod_count(&self) -> usize {
-        self.pod_states.lock().await.len()
+        let deleting = self.deleting_pods.lock().await;
+        let in_states = self.pod_states.lock().await.len();
+        let in_sync = self
+            .sync_slots
+            .lock()
+            .await
+            .iter()
+            .filter(|(uid, s)| s.running && !deleting.contains(*uid))
+            .count();
+        in_states + in_sync
     }
+}
+
+/// Returns true when two hostIP values would both bind the same host address,
+/// i.e. they would conflict.  Two ports conflict only when their host IPs
+/// overlap:
+///   - empty / "0.0.0.0" / "::" is the wildcard and overlaps with everything
+///   - two identical specific addresses overlap with each other
+///   - two distinct specific addresses do NOT overlap
+fn host_ports_overlap(a: Option<&str>, b: Option<&str>) -> bool {
+    let is_wildcard = |s: Option<&str>| matches!(s, None | Some("") | Some("0.0.0.0") | Some("::"));
+    if is_wildcard(a) || is_wildcard(b) {
+        return true;
+    }
+    // Both are specific addresses — conflict only if identical.
+    a == b
 }
 
 #[cfg(test)]
@@ -1080,5 +1121,63 @@ mod tests {
             .expect("PodScheduled condition must be set");
         assert_eq!(sched.status, ConditionStatus::False);
         assert_eq!(sched.reason.as_deref(), Some("Unschedulable"));
+    }
+
+    // ── host_ports_overlap unit tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_host_ports_overlap_wildcards() {
+        // Wildcard always overlaps.
+        assert!(host_ports_overlap(None, None));
+        assert!(host_ports_overlap(Some("0.0.0.0"), None));
+        assert!(host_ports_overlap(None, Some("0.0.0.0")));
+        assert!(host_ports_overlap(Some("0.0.0.0"), Some("192.168.1.1")));
+        assert!(host_ports_overlap(Some("192.168.1.1"), Some("0.0.0.0")));
+        assert!(host_ports_overlap(Some("::"), Some("::1")));
+    }
+
+    #[test]
+    fn test_host_ports_overlap_same_specific_ip() {
+        assert!(host_ports_overlap(Some("192.168.1.1"), Some("192.168.1.1")));
+    }
+
+    #[test]
+    fn test_host_ports_no_overlap_different_specific_ips() {
+        // Different specific IPs do NOT overlap — this is the key fix for the
+        // conformance test "same hostPort but different hostIP and protocol".
+        assert!(!host_ports_overlap(Some("127.0.0.1"), Some("192.168.1.1")));
+        assert!(!host_ports_overlap(Some("10.0.0.1"), Some("10.0.0.2")));
+    }
+
+    #[tokio::test]
+    async fn test_host_port_no_conflict_different_host_ips() {
+        use kubelet_core::pod::{ContainerPort, Protocol};
+        let (manager, pm, _rx, _dir) = make_manager().await;
+
+        // pod1: port 54323/TCP bound to 127.0.0.1
+        let mut pod1 = make_pod("uid-hp-ip1", "pod-hp-ip1");
+        pod1.containers[0].ports = vec![ContainerPort {
+            name: None,
+            container_port: 8080,
+            host_port: Some(54323),
+            protocol: Protocol::TCP,
+            host_ip: Some("127.0.0.1".to_string()),
+        }];
+        pm.upsert(pod1.clone()).await.unwrap();
+        pm.status.initialize(&pod1);
+
+        // pod2: same port/protocol but bound to 192.168.1.1 — should NOT conflict
+        let mut pod2 = make_pod("uid-hp-ip2", "pod-hp-ip2");
+        pod2.containers[0].ports = vec![ContainerPort {
+            name: None,
+            container_port: 8080,
+            host_port: Some(54323),
+            protocol: Protocol::TCP,
+            host_ip: Some("192.168.1.1".to_string()),
+        }];
+        assert!(
+            manager.check_host_port_conflict(&pod2).is_none(),
+            "pods with the same port/protocol on different specific hostIPs must not conflict"
+        );
     }
 }

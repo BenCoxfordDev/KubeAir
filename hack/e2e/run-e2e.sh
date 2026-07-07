@@ -61,6 +61,17 @@ require_cmd() {
 
 require_cmd "$CONTAINER_RUNTIME" "$CONTAINER_RUNTIME"
 
+# ── Network mode selection ────────────────────────────────────────────────────
+# Rootful podman: --network=host. Rootless: --network=pasta (user-space NAT,
+# gives internet access without host network namespace).
+NETWORK_MODE="host"
+if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
+  if podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null | grep -q "^true$"; then
+    log "podman is rootless — using --network pasta for internet access inside the container."
+    NETWORK_MODE="pasta"
+  fi
+fi
+
 step "Running kube-air e2e suite"
 log "Runtime:  $CONTAINER_RUNTIME"
 log "Image:    $BUILD_IMAGE"
@@ -99,7 +110,7 @@ mkdir -p "${HOME}/.cache/bazel"
 "$CONTAINER_RUNTIME" run \
   --rm \
   --privileged \
-  --network=host \
+  --network="$NETWORK_MODE" \
   --ulimit nofile=65536:65536 \
   -v "$REPO_ROOT:/workspace:z" \
   -v "$ARTIFACT_DIR:/artifacts:z" \

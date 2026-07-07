@@ -226,12 +226,32 @@ fn spec_to_cri_mounts(spec: &ContainerSpec) -> Vec<Mount> {
 }
 
 fn spec_to_linux_resources(spec: &ContainerSpec) -> LinuxContainerResources {
-    // Extract CPU quota from limits (in millicores)
+    // Extract CPU request (in millicores) to compute cpu_shares.
+    // Formula matches Kubernetes: max(2, milliCPU * 1024 / 1000).
+    // cpu_shares drives cpu.weight in cgroup v2 via containerd's conversion.
+    let cpu_req_millis = spec
+        .resources
+        .requests
+        .get("cpu")
+        .map(|q| q.value)
+        .unwrap_or(0);
+    // When no CPU request is set, use the minimum cpu_shares (2) so that
+    // containerd maps it to cpu.weight=1. Using 1024 (Linux default) would
+    // produce weight=40 which conflicts with conformance tests that verify
+    // weight=1 for containers with no CPU request.
+    let cpu_shares = if cpu_req_millis > 0 {
+        (cpu_req_millis * 1024 / 1000).max(2).min(262144)
+    } else {
+        2 // minimum: maps to cpu.weight=1 in cgroup v2
+    };
+
+    // Extract CPU quota from limits (in millicores).
+    // cpu_quota = milliCPU * cpu_period / 1000 (period = 100ms = 100_000 µs).
     let cpu_quota = spec
         .resources
         .limits
         .get("cpu")
-        .map(|q| q.value * 100) // Convert millicores to nano-cores at 100ms period
+        .map(|q| q.value * 100) // milliCPU → µs per 100ms period
         .unwrap_or(0);
 
     // Extract memory limit (already in bytes)
@@ -245,7 +265,7 @@ fn spec_to_linux_resources(spec: &ContainerSpec) -> LinuxContainerResources {
     LinuxContainerResources {
         cpu_quota,
         cpu_period: if cpu_quota > 0 { 100_000 } else { 0 },
-        cpu_shares: 1024,
+        cpu_shares,
         memory_limit_bytes: memory_limit,
         oom_score_adj: 0,
         cpuset_cpus: String::new(),
@@ -1010,6 +1030,41 @@ impl ContainerRuntime for ContainerdClient {
             stderr: vec![],
             exit_code: 0,
         })
+    }
+
+    async fn update_container_resources(
+        &self,
+        container_id: &ContainerID,
+        cpu_shares: i64,
+        cpu_quota: i64,
+        cpu_period: i64,
+        memory_limit_bytes: i64,
+    ) -> Result<()> {
+        debug!(
+            container_id = %container_id.0,
+            cpu_shares,
+            cpu_quota,
+            memory_limit_bytes,
+            "CRI UpdateContainerResources (in-place resize)"
+        );
+        let mut rt = self.runtime.clone();
+        rt.update_container_resources(UpdateContainerResourcesRequest {
+            container_id: container_id.0.clone(),
+            linux: Some(LinuxContainerResources {
+                cpu_quota,
+                cpu_period,
+                cpu_shares,
+                memory_limit_bytes,
+                oom_score_adj: 0,
+                cpuset_cpus: String::new(),
+                cpuset_mems: String::new(),
+                memory_swap_limit_bytes: 0,
+                hugepage_limits: vec![],
+            }),
+        })
+        .await
+        .map_err(|e| KubeletError::Runtime(format!("UpdateContainerResources (resize): {}", e)))?;
+        Ok(())
     }
 }
 

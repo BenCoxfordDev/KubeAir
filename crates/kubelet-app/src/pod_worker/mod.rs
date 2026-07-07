@@ -108,6 +108,9 @@ pub struct PodRuntimeState {
     /// container_name -> consecutive start failures (pre-create, e.g. missing secret/configmap).
     /// Backoff: min(10s * 2^(n-1), 300s). Reset when the container successfully reaches create_container.
     pub start_failure_backoff: HashMap<String, u32>,
+    /// container_name -> (cpu_req_millis, cpu_lim_millis, mem_lim_bytes) last applied via CRI.
+    /// Used to detect when in-place resize requires a CRI UpdateContainerResources call.
+    pub applied_resources: HashMap<String, (i64, i64, i64)>,
 }
 
 /// The pod worker: owns the full lifecycle of one pod.
@@ -935,6 +938,15 @@ impl PodWorker {
                                     .insert(ctr.name.clone(), cid.0.clone());
                             }
                         }
+
+                        // In-place resize: update cgroup values if resources changed.
+                        self.apply_container_resize_if_needed(
+                            &ctr.name,
+                            &cid,
+                            &ctr.resources,
+                            state,
+                        )
+                        .await;
 
                         continue;
                     }
@@ -3026,23 +3038,92 @@ impl PodWorker {
         }
     }
 
+    /// Apply in-place container resize if the desired resources differ from what was last applied.
+    /// Calls CRI UpdateContainerResources with the new cpu_shares / cpu_quota / memory_limit_bytes.
+    async fn apply_container_resize_if_needed(
+        &self,
+        name: &str,
+        cid: &kubelet_core::container::ContainerID,
+        resources: &kubelet_core::pod::ResourceRequirements,
+        state: &mut PodRuntimeState,
+    ) {
+        let cpu_req_millis = resources.requests.get("cpu").map(|q| q.value).unwrap_or(0);
+        let cpu_lim_millis = resources.limits.get("cpu").map(|q| q.value).unwrap_or(0);
+        let mem_lim_bytes = resources.limits.get("memory").map(|q| q.value).unwrap_or(0);
+
+        let key = (cpu_req_millis, cpu_lim_millis, mem_lim_bytes);
+
+        // Skip if the same values were already applied.
+        if state.applied_resources.get(name).copied() == Some(key) {
+            return;
+        }
+
+        // cpu_shares: cgroup v1 weight used by containerd to derive cpu.weight (v2).
+        // Formula matches Kubernetes: max(2, milliCPU * 1024 / 1000).
+        let cpu_shares = (cpu_req_millis * 1024 / 1000).max(2).min(262144);
+        let (cpu_quota, cpu_period) = if cpu_lim_millis > 0 {
+            (cpu_lim_millis * 100, 100_000i64)
+        } else {
+            (-1i64, 100_000i64)
+        };
+
+        debug!(
+            container = %name,
+            cpu_shares,
+            cpu_quota,
+            mem_lim_bytes,
+            "Applying in-place container resize"
+        );
+
+        if let Err(e) = self
+            .runtime
+            .update_container_resources(cid, cpu_shares, cpu_quota, cpu_period, mem_lim_bytes)
+            .await
+        {
+            warn!(container = %name, error = %e, "Failed to apply in-place container resize");
+        } else {
+            state.applied_resources.insert(name.to_string(), key);
+        }
+    }
+
     async fn update_pod_status(&self, pod: &PodSpec, state: &PodRuntimeState) {
         let mut ls = self.pod_manager.status.get(&pod.uid).unwrap_or_default();
 
         let mut new_init_statuses = Vec::new();
         for init_ctr in &pod.init_containers {
             let cid_str = state.container_ids.get(&init_ctr.name);
-            let (ctr_state, image_id) = if let Some(cid_str) = cid_str {
+            // cri_exit_terminated carries the Terminated state built from the CRI exit
+            // info when the container is Exited.  Used as last_state when in
+            // CrashLoopBackOff so the API reports LastTerminationState.Terminated
+            // (the conformance test init_container.go checks for this).
+            let (ctr_state, image_id, cri_exit_terminated) = if let Some(cid_str) = cid_str {
                 let cid = kubelet_core::container::ContainerID::new(cid_str.clone());
                 match self.runtime.container_status(&cid).await {
                     Ok(Some(s)) => {
                         let image_ref = s.image_ref.clone();
+                        let now = Utc::now();
+                        // Build a Terminated state from the CRI exit info while `s`
+                        // is still in scope; used below for last_state calculation.
+                        let cri_exit = if matches!(s.state, RuntimeContainerState::Exited) {
+                            Some(ContainerState::Terminated {
+                                exit_code: s.exit_code.unwrap_or(-1),
+                                reason: if s.exit_code.unwrap_or(-1) == 0 {
+                                    "Completed".to_string()
+                                } else {
+                                    "Error".to_string()
+                                },
+                                message: None,
+                                started_at: s.started_at.unwrap_or(now),
+                                finished_at: s.finished_at.unwrap_or(now),
+                            })
+                        } else {
+                            None
+                        };
                         let ctr_state = match &s.state {
                             RuntimeContainerState::Running => ContainerState::Running {
                                 started_at: s.started_at.unwrap_or_else(Utc::now),
                             },
                             RuntimeContainerState::Exited => {
-                                let now = Utc::now();
                                 if state.crash_loop_backoff.contains(&init_ctr.name) {
                                     ContainerState::Waiting {
                                         reason: "CrashLoopBackOff".to_string(),
@@ -3052,17 +3133,11 @@ impl PodWorker {
                                         )),
                                     }
                                 } else {
-                                    ContainerState::Terminated {
-                                        exit_code: s.exit_code.unwrap_or(-1),
-                                        reason: if s.exit_code.unwrap_or(-1) == 0 {
-                                            "Completed".to_string()
-                                        } else {
-                                            "Error".to_string()
-                                        },
+                                    // Use the already-built cri_exit value (unwrap safe: Exited).
+                                    cri_exit.clone().unwrap_or(ContainerState::Waiting {
+                                        reason: "ContainerCreating".to_string(),
                                         message: None,
-                                        started_at: s.started_at.unwrap_or(now),
-                                        finished_at: s.finished_at.unwrap_or(now),
-                                    }
+                                    })
                                 }
                             }
                             _ => ContainerState::Waiting {
@@ -3070,7 +3145,7 @@ impl PodWorker {
                                 message: None,
                             },
                         };
-                        (ctr_state, image_ref)
+                        (ctr_state, image_ref, cri_exit)
                     }
                     _ => (
                         ContainerState::Waiting {
@@ -3078,6 +3153,7 @@ impl PodWorker {
                             message: None,
                         },
                         String::new(),
+                        None,
                     ),
                 }
             } else {
@@ -3117,7 +3193,11 @@ impl PodWorker {
                     } else {
                         ("ContainerCreating".to_string(), None)
                     };
-                (ContainerState::Waiting { reason, message }, String::new())
+                (
+                    ContainerState::Waiting { reason, message },
+                    String::new(),
+                    None,
+                )
             };
 
             let last_state = if state
@@ -3127,19 +3207,43 @@ impl PodWorker {
                 .unwrap_or(0)
                 > 0
             {
-                ls.init_container_statuses
-                    .iter()
-                    .find(|s| s.name == init_ctr.name)
-                    .and_then(|prev| match &prev.state {
-                        ContainerState::Terminated { .. } => Some(prev.state.clone()),
-                        ContainerState::Running { .. }
-                            if matches!(&ctr_state, ContainerState::Running { .. }) =>
-                        {
-                            None
-                        }
-                        ContainerState::Running { .. } => Some(prev.state.clone()),
-                        _ => None,
-                    })
+                // When we are in CrashLoopBackOff the current state is Waiting but the
+                // CRI just reported an Exited container.  Prefer the CRI-sourced
+                // Terminated state over the previous in-memory Running state so that
+                // LastTerminationState.Terminated is non-nil as required by the
+                // conformance test (init_container.go:440).
+                let in_clbo = matches!(
+                    &ctr_state,
+                    ContainerState::Waiting { reason, .. } if reason == "CrashLoopBackOff"
+                );
+                if in_clbo {
+                    if let Some(terminated) = cri_exit_terminated {
+                        Some(terminated)
+                    } else {
+                        // Fall back to previous state if CRI info unavailable.
+                        ls.init_container_statuses
+                            .iter()
+                            .find(|s| s.name == init_ctr.name)
+                            .and_then(|prev| match &prev.state {
+                                ContainerState::Terminated { .. } => Some(prev.state.clone()),
+                                _ => None,
+                            })
+                    }
+                } else {
+                    ls.init_container_statuses
+                        .iter()
+                        .find(|s| s.name == init_ctr.name)
+                        .and_then(|prev| match &prev.state {
+                            ContainerState::Terminated { .. } => Some(prev.state.clone()),
+                            ContainerState::Running { .. }
+                                if matches!(&ctr_state, ContainerState::Running { .. }) =>
+                            {
+                                None
+                            }
+                            ContainerState::Running { .. } => Some(prev.state.clone()),
+                            _ => None,
+                        })
+                }
             } else {
                 None
             };

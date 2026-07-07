@@ -690,6 +690,9 @@ fn resource_requirements_to_k8s(
 fn lifecycle_container_status_to_k8s(
     cs: &kubelet_core::pod::lifecycle::ContainerStatus,
 ) -> k8s_openapi::api::core::v1::ContainerStatus {
+    use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+    use std::collections::BTreeMap;
+
     let (state_ready, started) = match &cs.state {
         ContainerState::Waiting { .. } => (false, Some(false)),
         ContainerState::Running { .. } => (true, Some(true)),
@@ -699,6 +702,23 @@ fn lifecycle_container_status_to_k8s(
     // (update_pod_status) sets cs.ready=true for successfully completed init
     // containers, which overrides the state-derived value.
     let ready = cs.ready || state_ready;
+
+    // allocated_resources = container's requests upon successful pod admission
+    // (Kubernetes spec: kubelet sets this to Container.Resources.Requests).
+    let allocated_resources: Option<BTreeMap<String, Quantity>> =
+        cs.resources.as_ref().and_then(|r| {
+            if r.requests.is_empty() {
+                None
+            } else {
+                Some(
+                    r.requests
+                        .iter()
+                        .map(|(k, v)| (k.clone(), Quantity(resource_quantity_to_string(v))))
+                        .collect(),
+                )
+            }
+        });
+
     k8s_openapi::api::core::v1::ContainerStatus {
         name: cs.name.clone(),
         state: Some(container_state_to_k8s(&cs.state)),
@@ -710,6 +730,7 @@ fn lifecycle_container_status_to_k8s(
         container_id: cs.container_id.clone(),
         started,
         resources: cs.resources.as_ref().map(resource_requirements_to_k8s),
+        allocated_resources,
         ..Default::default()
     }
 }
@@ -2337,6 +2358,60 @@ mod tests {
         assert!(
             k8s_cs.resources.is_none(),
             "resources should be None when not set"
+        );
+        assert!(
+            k8s_cs.allocated_resources.is_none(),
+            "allocated_resources should be None when requests are empty"
+        );
+    }
+
+    #[test]
+    fn test_lifecycle_container_status_to_k8s_includes_allocated_resources() {
+        use kubelet_core::pod::ResourceRequirements;
+        use kubelet_core::pod::lifecycle::{ContainerState, ContainerStatus};
+        use kubelet_core::types::{ResourceQuantity, ResourceUnit};
+        use std::collections::HashMap;
+
+        let mut requests = HashMap::new();
+        requests.insert(
+            "cpu".to_string(),
+            ResourceQuantity {
+                value: 2,
+                unit: ResourceUnit::Millicores,
+            },
+        );
+        requests.insert(
+            "memory".to_string(),
+            ResourceQuantity {
+                value: 64 * 1024 * 1024,
+                unit: ResourceUnit::Bytes,
+            },
+        );
+        let limits = HashMap::new();
+
+        let cs = ContainerStatus {
+            name: "c1".to_string(),
+            state: ContainerState::Running {
+                started_at: chrono::Utc::now(),
+            },
+            last_state: None,
+            ready: true,
+            restart_count: 0,
+            image: "busybox:latest".to_string(),
+            image_id: "sha256:def".to_string(),
+            container_id: Some("containerd://abc".to_string()),
+            started: Some(true),
+            resources: Some(ResourceRequirements { requests, limits }),
+        };
+
+        let k8s_cs = lifecycle_container_status_to_k8s(&cs);
+        let alloc = k8s_cs
+            .allocated_resources
+            .expect("allocated_resources must be populated from requests");
+        assert_eq!(alloc["cpu"].0, "2m", "cpu allocated_resources should be 2m");
+        assert_eq!(
+            alloc["memory"].0, "64Mi",
+            "memory allocated_resources should be 64Mi"
         );
     }
 }

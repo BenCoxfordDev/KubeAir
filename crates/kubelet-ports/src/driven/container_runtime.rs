@@ -216,6 +216,27 @@ pub trait ContainerRuntime: Send + Sync {
     ) -> Result<()> {
         Ok(())
     }
+
+    /// Update resource limits on a running container (in-place resize).
+    ///
+    /// - `cpu_shares`: CPU weight (cgroup v1 shares); compute as
+    ///   `max(2, cpu_millicores * 1024 / 1000)`.
+    /// - `cpu_quota`: CPU quota in microseconds per `cpu_period`; use `-1` for
+    ///   no limit.
+    /// - `cpu_period`: CFS period in microseconds; typically `100_000` (100 ms).
+    /// - `memory_limit_bytes`: memory hard limit in bytes; use `0` for no limit.
+    ///
+    /// Runtimes that do not support in-place resize can keep the default no-op.
+    async fn update_container_resources(
+        &self,
+        _container_id: &ContainerID,
+        _cpu_shares: i64,
+        _cpu_quota: i64,
+        _cpu_period: i64,
+        _memory_limit_bytes: i64,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Result of a synchronous exec command.
