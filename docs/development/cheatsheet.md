@@ -51,3 +51,29 @@ Skip the binary rebuild if you've already built:
 ```bash
 SKIP_BUILD=1 bash hack/e2e/run-e2e.sh
 ```
+
+## Kubernetes Golang E2E
+
+### Run test-suite
+
+```bash
+just go-e2e
+```
+
+### Run only the websocket log test
+
+```bash
+CONFORMANCE_FOCUS="websocket" just go-e2e
+```
+
+### Run only the InPlace resize tests
+
+```bash
+CONFORMANCE_FOCUS="InPlace" just go-e2e
+```
+
+### Run a single named test (exact Ginkgo label)
+
+```bash
+CONFORMANCE_FOCUS="should support retrieving logs from the container over websockets" just go-e2e
+```

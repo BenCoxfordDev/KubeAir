@@ -2652,35 +2652,34 @@ pub async fn log_websocket_handler(
         Err(resp) => return resp,
     };
 
-    let (effective_container, body) = match collect_logs_body(&state, &ns, &pod_name, &query).await
-    {
-        Ok(v) => v,
-        Err((status, msg, err_key)) => {
-            streaming_record_error("log", err_key);
-            let reason = match status {
-                StatusCode::NOT_FOUND => "NotFound",
-                StatusCode::BAD_REQUEST => "BadRequest",
-                StatusCode::SERVICE_UNAVAILABLE => "ServiceUnavailable",
-                StatusCode::INTERNAL_SERVER_ERROR => "InternalError",
-                _ => "Failure",
-            };
-            return k8s_error_response(status, reason, &msg);
-        }
-    };
-
-    streaming_record_bytes("log", "out", body.len());
-    streaming_record_latency("log", request_started.elapsed().as_secs_f64());
-    audit_stream_event(
-        "log",
-        &auth.username,
-        &ns,
-        &pod_name,
-        Some(&effective_container),
-        "allowed",
-    );
-
+    // Respond with the HTTP 101 upgrade immediately so the API-server WebSocket
+    // proxy does not time out waiting for the handshake.  Log collection happens
+    // inside the upgrade callback; any error silently closes the socket (the
+    // API-server proxy treats that as an empty/closed stream, which is
+    // indistinguishable from the server-side-error path for a WebSocket log
+    // connection).
     ws.protocols([K8S_LOG_SUBPROTOCOL])
         .on_upgrade(move |mut socket| async move {
+            let (effective_container, body) =
+                match collect_logs_body(&state, &ns, &pod_name, &query).await {
+                    Ok(v) => v,
+                    Err((_, _, err_key)) => {
+                        streaming_record_error("log", err_key);
+                        return;
+                    }
+                };
+
+            streaming_record_bytes("log", "out", body.len());
+            streaming_record_latency("log", request_started.elapsed().as_secs_f64());
+            audit_stream_event(
+                "log",
+                &auth.username,
+                &ns,
+                &pod_name,
+                Some(&effective_container),
+                "allowed",
+            );
+
             if !body.is_empty() {
                 let _ = socket.send(Message::Binary(body.into_bytes())).await;
             }
@@ -2791,43 +2790,32 @@ async fn collect_logs_body(
         }
     }
 
-    // Collect all numbered log files, sort ascending.
-    let mut all_log_files: Vec<(u32, PathBuf)> = std::fs::read_dir(&container_log_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let path = e.path();
-            let name = path.file_name()?.to_string_lossy().into_owned();
-            let idx: u32 = name.strip_suffix(".log")?.parse().ok()?;
-            Some((idx, path))
-        })
-        .collect();
-    all_log_files.sort_by_key(|(idx, _)| *idx);
-
-    // If the container has never produced any log files and is currently
-    // Waiting (e.g. ErrImagePull, ContainerCreating), return a descriptive
-    // error immediately rather than silently returning empty output.
-    if all_log_files.is_empty()
-        && let Some(reason) = &waiting_reason
-    {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!(
-                "container '{}' in pod '{}/{}' is waiting: {}",
-                effective_container, ns, pod_name, reason
-            ),
-            "container_not_started",
-        ));
-    }
-
     // Read log entries. If none are found on the first attempt it may be a
     // timing race — the container just started and containerd hasn't flushed
-    // its first write yet. Retry for up to ~3 s with 200 ms back-off.
+    // its first write yet, or the log directory hasn't been created yet.
+    // Retry for up to ~3 s with 200 ms back-off, re-scanning the directory
+    // each attempt so newly created log files are discovered.
     let mut entries: Vec<LogEntry> = Vec::new();
     let max_attempts = 15; // 15 × 200 ms = 3 s
     for attempt in 0..max_attempts {
         entries.clear();
+
+        // Re-scan the log directory on every attempt so we pick up newly
+        // created log files (containerd may not have created the directory
+        // until after the first log write).
+        let mut all_log_files: Vec<(u32, PathBuf)> = std::fs::read_dir(&container_log_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let path = e.path();
+                let name = path.file_name()?.to_string_lossy().into_owned();
+                let idx: u32 = name.strip_suffix(".log")?.parse().ok()?;
+                Some((idx, path))
+            })
+            .collect();
+        all_log_files.sort_by_key(|(idx, _)| *idx);
+
         // Read all numbered log files in order; post-filter by time boundary.
         for (_, path) in &all_log_files {
             if !path.exists() {
@@ -2871,9 +2859,28 @@ async fn collect_logs_body(
         if !entries.is_empty() {
             break;
         }
+        // If the container is Waiting (e.g. ContainerCreating, ErrImagePull)
+        // and still has no log files after the first attempt, return a
+        // descriptive error immediately rather than spending 3s retrying.
+        if all_log_files.is_empty()
+            && let Some(reason) = &waiting_reason
+            && attempt == 0
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "container '{}' in pod '{}/{}' is waiting: {}",
+                    effective_container, ns, pod_name, reason
+                ),
+                "container_not_started",
+            ));
+        }
         // Only sleep between retries — not after the last attempt.
+        // Use tokio::time::sleep so we yield the async executor (not std::thread::sleep
+        // which would block the tokio worker thread for the full 200ms, preventing
+        // other tasks — including log file writes — from making progress).
         if attempt + 1 < max_attempts {
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
     }
 
