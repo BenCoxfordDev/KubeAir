@@ -240,7 +240,7 @@ fn spec_to_linux_resources(spec: &ContainerSpec) -> LinuxContainerResources {
     // produce weight=40 which conflicts with conformance tests that verify
     // weight=1 for containers with no CPU request.
     let cpu_shares = if cpu_req_millis > 0 {
-        (cpu_req_millis * 1024 / 1000).max(2).min(262144)
+        (cpu_req_millis * 1024 / 1000).clamp(2, 262144)
     } else {
         2 // minimum: maps to cpu.weight=1 in cgroup v2
     };

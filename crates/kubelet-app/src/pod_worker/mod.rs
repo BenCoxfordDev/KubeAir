@@ -3081,7 +3081,7 @@ impl PodWorker {
 
         // cpu_shares: cgroup v1 weight used by containerd to derive cpu.weight (v2).
         // Formula matches Kubernetes: max(2, milliCPU * 1024 / 1000).
-        let cpu_shares = (cpu_req_millis * 1024 / 1000).max(2).min(262144);
+        let cpu_shares = (cpu_req_millis * 1024 / 1000).clamp(2, 262144);
         let (cpu_quota, cpu_period) = if cpu_lim_millis > 0 {
             (cpu_lim_millis * 100, 100_000i64)
         } else {
