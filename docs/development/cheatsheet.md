@@ -40,6 +40,16 @@ just bench
 
 ## Local E2E
 
+### Podman Recommendations
+
+It is recommended to run the tests using Podman. 
+
+```
+podman machine init
+podman machine set --rootful
+podman machine start
+```
+
 Use [hack/e2e/run-e2e.sh](hack/e2e/run-e2e.sh) to provision a single-node k3s cluster in a privileged container (podman or docker) and run the full test suite. Requires podman (preferred) or docker.
 
 ```bash
