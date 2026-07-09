@@ -260,6 +260,20 @@ impl NodeReporter for KubeNodeReporter {
 
         // Use Apply patch with field manager to avoid conflicts with other controllers
         let patch_params = PatchParams::apply("kubelet").force();
+        let status_obj = build_pod_status_json(
+            phase,
+            reason.as_deref(),
+            &conditions,
+            &container_statuses,
+            &init_container_statuses,
+            &ephemeral_container_statuses,
+            start_time,
+            pod_ip.clone(),
+            &pod_ips,
+            host_ip.clone(),
+            &host_ips,
+            observed_generation,
+        );
         pods.patch_status(
             &pod_ref.name,
             &patch_params,
@@ -270,20 +284,7 @@ impl NodeReporter for KubeNodeReporter {
                     "name": pod_ref.name,
                     "namespace": pod_ref.namespace,
                 },
-                "status": {
-                    "phase": phase,
-                    "reason": reason,
-                    "conditions": conditions,
-                    "containerStatuses": container_statuses,
-                    "initContainerStatuses": init_container_statuses,
-                    "ephemeralContainerStatuses": ephemeral_container_statuses,
-                    "startTime": start_time,
-                    "podIP": pod_ip,
-                    "podIPs": pod_ips,
-                    "hostIP": host_ip,
-                    "hostIPs": host_ips,
-                    "observedGeneration": observed_generation,
-                }
+                "status": status_obj,
             })),
         )
         .await
@@ -703,22 +704,6 @@ fn lifecycle_container_status_to_k8s(
     // containers, which overrides the state-derived value.
     let ready = cs.ready || state_ready;
 
-    // allocated_resources = container's requests upon successful pod admission
-    // (Kubernetes spec: kubelet sets this to Container.Resources.Requests).
-    let allocated_resources: Option<BTreeMap<String, Quantity>> =
-        cs.resources.as_ref().and_then(|r| {
-            if r.requests.is_empty() {
-                None
-            } else {
-                Some(
-                    r.requests
-                        .iter()
-                        .map(|(k, v)| (k.clone(), Quantity(resource_quantity_to_string(v))))
-                        .collect(),
-                )
-            }
-        });
-
     k8s_openapi::api::core::v1::ContainerStatus {
         name: cs.name.clone(),
         state: Some(container_state_to_k8s(&cs.state)),
@@ -730,7 +715,16 @@ fn lifecycle_container_status_to_k8s(
         container_id: cs.container_id.clone(),
         started,
         resources: cs.resources.as_ref().map(resource_requirements_to_k8s),
-        allocated_resources,
+        allocated_resources: if cs.allocated_resources.is_empty() {
+            None
+        } else {
+            Some(
+                cs.allocated_resources
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Quantity(resource_quantity_to_string(v))))
+                    .collect::<BTreeMap<String, Quantity>>(),
+            )
+        },
         ..Default::default()
     }
 }
@@ -1826,6 +1820,49 @@ fn k8s_container_to_spec(c: &k8s_openapi::api::core::v1::Container) -> Container
 
 // -- Tests --------------------------------------------------------------------
 
+/// Build the `status` object for a pod SSA patch.
+///
+/// Extracted from `report_pod_status` to make it unit-testable.
+/// The key invariant: `observedGeneration` is **omitted** when `None`, not
+/// serialised as `null`, so SSA does not actively clear the field in the API
+/// server.
+#[allow(clippy::too_many_arguments)]
+fn build_pod_status_json(
+    phase: &str,
+    reason: Option<&str>,
+    conditions: &[k8s_openapi::api::core::v1::PodCondition],
+    container_statuses: &[k8s_openapi::api::core::v1::ContainerStatus],
+    init_container_statuses: &[k8s_openapi::api::core::v1::ContainerStatus],
+    ephemeral_container_statuses: &[k8s_openapi::api::core::v1::ContainerStatus],
+    start_time: Option<Time>,
+    pod_ip: Option<String>,
+    pod_ips: &[k8s_openapi::api::core::v1::PodIP],
+    host_ip: Option<String>,
+    host_ips: &[k8s_openapi::api::core::v1::HostIP],
+    observed_generation: Option<i64>,
+) -> serde_json::Value {
+    let mut obj = serde_json::json!({
+        "phase": phase,
+        "reason": reason,
+        "conditions": conditions,
+        "containerStatuses": container_statuses,
+        "initContainerStatuses": init_container_statuses,
+        "ephemeralContainerStatuses": ephemeral_container_statuses,
+        "startTime": start_time,
+        "podIP": pod_ip,
+        "podIPs": pod_ips,
+        "hostIP": host_ip,
+        "hostIPs": host_ips,
+    });
+    // Only include observedGeneration when it has a value — sending null via
+    // SSA would explicitly clear the field (set to 0) in the API server,
+    // causing generation-tracking tests to fail.
+    if let Some(obs_gen) = observed_generation {
+        obj["observedGeneration"] = serde_json::json!(obs_gen);
+    }
+    obj
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2321,6 +2358,7 @@ mod tests {
             container_id: Some("containerd://xyz".to_string()),
             started: Some(true),
             resources: Some(ResourceRequirements { requests, limits }),
+            allocated_resources: Default::default(),
         };
 
         let k8s_cs = lifecycle_container_status_to_k8s(&cs);
@@ -2352,6 +2390,7 @@ mod tests {
             container_id: None,
             started: Some(false),
             resources: None,
+            allocated_resources: Default::default(),
         };
 
         let k8s_cs = lifecycle_container_status_to_k8s(&cs);
@@ -2401,7 +2440,11 @@ mod tests {
             image_id: "sha256:def".to_string(),
             container_id: Some("containerd://abc".to_string()),
             started: Some(true),
-            resources: Some(ResourceRequirements { requests, limits }),
+            resources: Some(ResourceRequirements {
+                requests: requests.clone(),
+                limits,
+            }),
+            allocated_resources: requests,
         };
 
         let k8s_cs = lifecycle_container_status_to_k8s(&cs);
@@ -2412,6 +2455,85 @@ mod tests {
         assert_eq!(
             alloc["memory"].0, "64Mi",
             "memory allocated_resources should be 64Mi"
+        );
+    }
+
+    // -- build_pod_status_json: observedGeneration SSA omission ---------------
+
+    /// When `observed_generation` is `None`, the status object must NOT contain
+    /// an `observedGeneration` key at all.  Sending `null` via SSA explicitly
+    /// clears the field in the API server (equivalent to setting it to 0), which
+    /// breaks the generation-tracking conformance tests.
+    #[test]
+    fn test_build_pod_status_json_omits_observed_generation_when_none() {
+        let obj = build_pod_status_json(
+            "Running",
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            None,
+            &[],
+            None,
+            &[],
+            None, // <-- observed_generation is None
+        );
+        assert!(
+            !obj.as_object().unwrap().contains_key("observedGeneration"),
+            "observedGeneration must be absent from SSA patch when None, got: {obj}"
+        );
+    }
+
+    /// When `observed_generation` is `Some(n)`, the status object must include
+    /// the correct integer value.
+    #[test]
+    fn test_build_pod_status_json_includes_observed_generation_when_some() {
+        let obj = build_pod_status_json(
+            "Running",
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            None,
+            &[],
+            None,
+            &[],
+            Some(7),
+        );
+        assert_eq!(
+            obj["observedGeneration"],
+            serde_json::json!(7),
+            "observedGeneration must be the supplied value"
+        );
+    }
+
+    /// Sending `null` for `observedGeneration` must not appear in the patch —
+    /// this is the regression guard for the original bug.
+    #[test]
+    fn test_build_pod_status_json_null_not_serialised_for_none() {
+        let obj = build_pod_status_json(
+            "Pending",
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            None,
+            &[],
+            None,
+            &[],
+            None,
+        );
+        let map = obj.as_object().unwrap();
+        assert!(
+            map.get("observedGeneration").is_none()
+                || map["observedGeneration"] != serde_json::Value::Null,
+            "observedGeneration must not be null in SSA patch, got: {obj}"
         );
     }
 }

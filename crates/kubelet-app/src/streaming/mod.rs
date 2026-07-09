@@ -2652,39 +2652,36 @@ pub async fn log_websocket_handler(
         Err(resp) => return resp,
     };
 
-    // Upgrade to WebSocket immediately so the client gets the 101 response
-    // without waiting for log collection (which may retry for up to 3 seconds).
-    // Collect logs inside the on_upgrade callback so the WebSocket handshake
-    // is not delayed by the log-file retry loop.
-    let username = auth.username.clone();
+    // Respond with the HTTP 101 upgrade immediately so the API-server WebSocket
+    // proxy does not time out waiting for the handshake.  Log collection happens
+    // inside the upgrade callback; any error silently closes the socket (the
+    // API-server proxy treats that as an empty/closed stream, which is
+    // indistinguishable from the server-side-error path for a WebSocket log
+    // connection).
     ws.protocols([K8S_LOG_SUBPROTOCOL])
         .on_upgrade(move |mut socket| async move {
-            match collect_logs_body(&state, &ns, &pod_name, &query).await {
-                Ok((effective_container, body)) => {
-                    streaming_record_bytes("log", "out", body.len());
-                    streaming_record_latency("log", request_started.elapsed().as_secs_f64());
-                    audit_stream_event(
-                        "log",
-                        &username,
-                        &ns,
-                        &pod_name,
-                        Some(&effective_container),
-                        "allowed",
-                    );
-                    if !body.is_empty() {
-                        let _ = socket.send(Message::Binary(body.into_bytes())).await;
+            let (effective_container, body) =
+                match collect_logs_body(&state, &ns, &pod_name, &query).await {
+                    Ok(v) => v,
+                    Err((_, _, err_key)) => {
+                        streaming_record_error("log", err_key);
+                        return;
                     }
-                }
-                Err((status, msg, err_key)) => {
-                    streaming_record_error("log", err_key);
-                    streaming_record_latency("log", request_started.elapsed().as_secs_f64());
-                    let err_body = format!(
-                        "{{\"status\":\"{}\",\"message\":\"{}\"}}",
-                        status.as_u16(),
-                        msg.replace('"', "\\\"")
-                    );
-                    let _ = socket.send(Message::Text(err_body.into())).await;
-                }
+                };
+
+            streaming_record_bytes("log", "out", body.len());
+            streaming_record_latency("log", request_started.elapsed().as_secs_f64());
+            audit_stream_event(
+                "log",
+                &auth.username,
+                &ns,
+                &pod_name,
+                Some(&effective_container),
+                "allowed",
+            );
+
+            if !body.is_empty() {
+                let _ = socket.send(Message::Binary(body.into_bytes())).await;
             }
         })
 }
@@ -2752,15 +2749,17 @@ async fn collect_logs_body(
     // termination + recreation cycles when the sandbox log_directory stays the
     // same (same pod UID). Selecting by file index alone is insufficient.
     //
-    // File-index-based selection: containerd names files 0.log, 1.log, …
-    // with one file per restart.  !want_previous → latest file; want_previous
-    // → all files except the latest.  This avoids timestamp-based filtering,
-    // which is fragile due to containerd writing timestamps in the system's
-    // local timezone while pod status timestamps are UTC.
+    // Strategy:
+    //   kubectl logs           (previous=false) → entries >= current container started_at
+    //   kubectl logs --previous (previous=true)  → entries <  current container started_at
+    //
+    // The current container's started_at comes from the pod status ContainerState::Running.
+    // If unavailable (container not yet Running), fall back to no time filter.
     let want_previous = query.previous.unwrap_or(false);
 
-    // Capture only the waiting reason — used for an early-exit error when the
-    // container has never started and no log files exist yet.
+    // Capture both the container's start time (for log slicing) and its waiting
+    // reason (so we can return a useful error instead of empty output).
+    let mut current_started_at: Option<DateTime<Utc>> = None;
     let mut waiting_reason: Option<String> = None;
     if let Some(pod_status) = state.pod_manager.status.get(&pod.uid) {
         let all_statuses = pod_status
@@ -2770,77 +2769,41 @@ async fn collect_logs_body(
             .chain(pod_status.ephemeral_container_statuses.iter());
         for cs in all_statuses {
             if cs.name == effective_container {
-                if let kubelet_core::pod::lifecycle::ContainerState::Waiting { reason, message } =
-                    &cs.state
-                {
-                    waiting_reason = Some(match message {
-                        Some(msg) => format!("{}: {}", reason, msg),
-                        None => reason.clone(),
-                    });
+                match &cs.state {
+                    kubelet_core::pod::lifecycle::ContainerState::Running { started_at } => {
+                        current_started_at = Some(*started_at);
+                    }
+                    kubelet_core::pod::lifecycle::ContainerState::Terminated {
+                        started_at, ..
+                    } => {
+                        current_started_at = Some(*started_at);
+                    }
+                    kubelet_core::pod::lifecycle::ContainerState::Waiting { reason, message } => {
+                        waiting_reason = Some(match message {
+                            Some(msg) => format!("{}: {}", reason, msg),
+                            None => reason.clone(),
+                        });
+                    }
                 }
                 break;
             }
         }
     }
 
-    // Initial scan used only for the early-exit check below (container Waiting
-    // with no log files at all).
-    let all_log_files: Vec<(u32, PathBuf)> = std::fs::read_dir(&container_log_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let path = e.path();
-            let name = path.file_name()?.to_string_lossy().into_owned();
-            let idx: u32 = name.strip_suffix(".log")?.parse().ok()?;
-            Some((idx, path))
-        })
-        .collect();
-
-    // If the container has never produced any log files and is currently
-    // Waiting (e.g. ErrImagePull, ContainerCreating), return a descriptive
-    // error immediately rather than silently returning empty output.
-    if all_log_files.is_empty()
-        && let Some(reason) = &waiting_reason
-    {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!(
-                "container '{}' in pod '{}/{}' is waiting: {}",
-                effective_container, ns, pod_name, reason
-            ),
-            "container_not_started",
-        ));
-    }
-
     // Read log entries. If none are found on the first attempt it may be a
     // timing race — the container just started and containerd hasn't flushed
-    // its first write yet.  Re-scan the log directory on each attempt in case
-    // the log file itself was created after the initial scan (e.g. the
-    // container just started and hasn't written to disk yet).
-    // Retry for up to ~3 s with 200 ms back-off.
-    //
-    // File selection strategy (avoids unreliable timestamp-based filtering):
-    // containerd gives each container restart a new numbered log file:
-    //   0.log = first run, 1.log = first restart, 2.log = second restart, …
-    //
-    // For !want_previous: read only the highest-indexed file (current run).
-    // For  want_previous: read all files except the highest-indexed one.
-    //
-    // Timestamp-based filtering was previously used here but is fragile:
-    // containerd writes timestamps in the system's local timezone while
-    // started_at is UTC, so a timezone offset (e.g. BST = UTC+1) causes all
-    // entries to appear 1 h before started_at and get filtered out, producing
-    // empty log output even when the log file contains data.
+    // its first write yet, or the log directory hasn't been created yet.
+    // Retry for up to ~3 s with 200 ms back-off, re-scanning the directory
+    // each attempt so newly created log files are discovered.
     let mut entries: Vec<LogEntry> = Vec::new();
     let max_attempts = 15; // 15 × 200 ms = 3 s
     for attempt in 0..max_attempts {
         entries.clear();
 
-        // Re-scan the directory on every attempt so we pick up log files that
-        // appear after the initial scan (timing race between container start and
-        // the kubelet log handler).
-        let mut current_log_files: Vec<(u32, PathBuf)> = std::fs::read_dir(&container_log_dir)
+        // Re-scan the log directory on every attempt so we pick up newly
+        // created log files (containerd may not have created the directory
+        // until after the first log write).
+        let mut all_log_files: Vec<(u32, PathBuf)> = std::fs::read_dir(&container_log_dir)
             .into_iter()
             .flatten()
             .flatten()
@@ -2851,24 +2814,10 @@ async fn collect_logs_body(
                 Some((idx, path))
             })
             .collect();
-        current_log_files.sort_by_key(|(idx, _)| *idx);
+        all_log_files.sort_by_key(|(idx, _)| *idx);
 
-        // Select which files to read based on want_previous.
-        let files_to_read: Vec<&(u32, PathBuf)> = if want_previous {
-            // --previous: all files except the latest (highest index)
-            if current_log_files.len() > 1 {
-                current_log_files[..current_log_files.len() - 1]
-                    .iter()
-                    .collect()
-            } else {
-                vec![]
-            }
-        } else {
-            // current: only the latest file
-            current_log_files.last().into_iter().collect()
-        };
-
-        for (_, path) in files_to_read {
+        // Read all numbered log files in order; post-filter by time boundary.
+        for (_, path) in &all_log_files {
             if !path.exists() {
                 continue;
             }
@@ -2882,12 +2831,54 @@ async fn collect_logs_body(
             }
         }
 
+        // Slice by container start time so each run sees only its own output.
+        if let Some(start) = current_started_at {
+            if want_previous {
+                // --previous: entries strictly before current container started
+                entries.retain(|e| {
+                    DateTime::parse_from_rfc3339(&e.time)
+                        .map(|ts| ts.with_timezone(&Utc) < start)
+                        .unwrap_or(true)
+                });
+            } else {
+                // current: entries at or after current container started.
+                // Allow a 2-second tolerance: the container runtime may
+                // record the first log line with a timestamp slightly before
+                // the started_at reported in pod status, which would cause
+                // the first log entry to be silently dropped (go e2e:
+                // pods.go:679 "Unexpected websocket logs: []").
+                let filter_start = start - chrono::Duration::seconds(2);
+                entries.retain(|e| {
+                    DateTime::parse_from_rfc3339(&e.time)
+                        .map(|ts| ts.with_timezone(&Utc) >= filter_start)
+                        .unwrap_or(true)
+                });
+            }
+        }
+
         if !entries.is_empty() {
             break;
         }
+        // If the container is Waiting (e.g. ContainerCreating, ErrImagePull)
+        // and still has no log files after the first attempt, return a
+        // descriptive error immediately rather than spending 3s retrying.
+        if all_log_files.is_empty()
+            && let Some(reason) = &waiting_reason
+            && attempt == 0
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "container '{}' in pod '{}/{}' is waiting: {}",
+                    effective_container, ns, pod_name, reason
+                ),
+                "container_not_started",
+            ));
+        }
         // Only sleep between retries — not after the last attempt.
-        // Use tokio::time::sleep (not std::thread::sleep) to avoid blocking
-        // the async executor while waiting for container log files to appear.
+        // Use tokio::time::sleep so we yield the async executor (not std::thread::sleep
+        // which would block the tokio worker thread for the full 200ms, preventing
+        // other tasks — including log file writes — from making progress).
         if attempt + 1 < max_attempts {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }

@@ -731,6 +731,27 @@ impl PodWorker {
                             }
                             return PodSyncResult::Terminated;
                         }
+                        Ok(Some(s))
+                            if s.state == RuntimeContainerState::Exited
+                                && s.exit_code != Some(0) =>
+                        {
+                            // Init container failed and pod will restart (RestartPolicy != Never).
+                            // Snapshot the Terminated state before restarting so that
+                            // update_pod_status can populate lastTerminationState even
+                            // after the container transitions back to Running/Waiting.
+                            let exit_code = s.exit_code.unwrap_or(-1);
+                            state.last_terminated_states.insert(
+                                init_ctr.name.clone(),
+                                ContainerState::Terminated {
+                                    exit_code,
+                                    reason: "Error".to_string(),
+                                    message: None,
+                                    started_at: s.started_at.unwrap_or_else(Utc::now),
+                                    finished_at: s.finished_at.unwrap_or_else(Utc::now),
+                                },
+                            );
+                            // fall through to restart
+                        }
                         _ => {} // fall through to restart
                     }
                 }
@@ -3092,38 +3113,17 @@ impl PodWorker {
         let mut new_init_statuses = Vec::new();
         for init_ctr in &pod.init_containers {
             let cid_str = state.container_ids.get(&init_ctr.name);
-            // cri_exit_terminated carries the Terminated state built from the CRI exit
-            // info when the container is Exited.  Used as last_state when in
-            // CrashLoopBackOff so the API reports LastTerminationState.Terminated
-            // (the conformance test init_container.go checks for this).
-            let (ctr_state, image_id, cri_exit_terminated) = if let Some(cid_str) = cid_str {
+            let (ctr_state, image_id) = if let Some(cid_str) = cid_str {
                 let cid = kubelet_core::container::ContainerID::new(cid_str.clone());
                 match self.runtime.container_status(&cid).await {
                     Ok(Some(s)) => {
                         let image_ref = s.image_ref.clone();
-                        let now = Utc::now();
-                        // Build a Terminated state from the CRI exit info while `s`
-                        // is still in scope; used below for last_state calculation.
-                        let cri_exit = if matches!(s.state, RuntimeContainerState::Exited) {
-                            Some(ContainerState::Terminated {
-                                exit_code: s.exit_code.unwrap_or(-1),
-                                reason: if s.exit_code.unwrap_or(-1) == 0 {
-                                    "Completed".to_string()
-                                } else {
-                                    "Error".to_string()
-                                },
-                                message: None,
-                                started_at: s.started_at.unwrap_or(now),
-                                finished_at: s.finished_at.unwrap_or(now),
-                            })
-                        } else {
-                            None
-                        };
                         let ctr_state = match &s.state {
                             RuntimeContainerState::Running => ContainerState::Running {
                                 started_at: s.started_at.unwrap_or_else(Utc::now),
                             },
                             RuntimeContainerState::Exited => {
+                                let now = Utc::now();
                                 if state.crash_loop_backoff.contains(&init_ctr.name) {
                                     ContainerState::Waiting {
                                         reason: "CrashLoopBackOff".to_string(),
@@ -3133,11 +3133,17 @@ impl PodWorker {
                                         )),
                                     }
                                 } else {
-                                    // Use the already-built cri_exit value (unwrap safe: Exited).
-                                    cri_exit.clone().unwrap_or(ContainerState::Waiting {
-                                        reason: "ContainerCreating".to_string(),
+                                    ContainerState::Terminated {
+                                        exit_code: s.exit_code.unwrap_or(-1),
+                                        reason: if s.exit_code.unwrap_or(-1) == 0 {
+                                            "Completed".to_string()
+                                        } else {
+                                            "Error".to_string()
+                                        },
                                         message: None,
-                                    })
+                                        started_at: s.started_at.unwrap_or(now),
+                                        finished_at: s.finished_at.unwrap_or(now),
+                                    }
                                 }
                             }
                             _ => ContainerState::Waiting {
@@ -3145,7 +3151,7 @@ impl PodWorker {
                                 message: None,
                             },
                         };
-                        (ctr_state, image_ref, cri_exit)
+                        (ctr_state, image_ref)
                     }
                     _ => (
                         ContainerState::Waiting {
@@ -3153,7 +3159,6 @@ impl PodWorker {
                             message: None,
                         },
                         String::new(),
-                        None,
                     ),
                 }
             } else {
@@ -3193,11 +3198,7 @@ impl PodWorker {
                     } else {
                         ("ContainerCreating".to_string(), None)
                     };
-                (
-                    ContainerState::Waiting { reason, message },
-                    String::new(),
-                    None,
-                )
+                (ContainerState::Waiting { reason, message }, String::new())
             };
 
             let last_state = if state
@@ -3207,43 +3208,28 @@ impl PodWorker {
                 .unwrap_or(0)
                 > 0
             {
-                // When we are in CrashLoopBackOff the current state is Waiting but the
-                // CRI just reported an Exited container.  Prefer the CRI-sourced
-                // Terminated state over the previous in-memory Running state so that
-                // LastTerminationState.Terminated is non-nil as required by the
-                // conformance test (init_container.go:440).
-                let in_clbo = matches!(
-                    &ctr_state,
-                    ContainerState::Waiting { reason, .. } if reason == "CrashLoopBackOff"
-                );
-                if in_clbo {
-                    if let Some(terminated) = cri_exit_terminated {
-                        Some(terminated)
-                    } else {
-                        // Fall back to previous state if CRI info unavailable.
+                // Prefer the in-memory snapshot captured just before restart — it
+                // remains accurate even after the container transitions back to Running/Waiting.
+                state
+                    .last_terminated_states
+                    .get(&init_ctr.name)
+                    .cloned()
+                    .or_else(|| {
+                        // Fall back to the previous API snapshot.
                         ls.init_container_statuses
                             .iter()
                             .find(|s| s.name == init_ctr.name)
                             .and_then(|prev| match &prev.state {
                                 ContainerState::Terminated { .. } => Some(prev.state.clone()),
+                                ContainerState::Running { .. }
+                                    if matches!(&ctr_state, ContainerState::Running { .. }) =>
+                                {
+                                    None
+                                }
+                                ContainerState::Running { .. } => Some(prev.state.clone()),
                                 _ => None,
                             })
-                    }
-                } else {
-                    ls.init_container_statuses
-                        .iter()
-                        .find(|s| s.name == init_ctr.name)
-                        .and_then(|prev| match &prev.state {
-                            ContainerState::Terminated { .. } => Some(prev.state.clone()),
-                            ContainerState::Running { .. }
-                                if matches!(&ctr_state, ContainerState::Running { .. }) =>
-                            {
-                                None
-                            }
-                            ContainerState::Running { .. } => Some(prev.state.clone()),
-                            _ => None,
-                        })
-                }
+                    })
             } else {
                 None
             };
@@ -3289,6 +3275,7 @@ impl PodWorker {
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(matches!(ctr_state, ContainerState::Running { .. })),
                 resources: Some(init_ctr.resources.clone()),
+                allocated_resources: init_ctr.resources.requests.clone(),
             });
         }
         ls.init_container_statuses = new_init_statuses;
@@ -3539,6 +3526,7 @@ impl PodWorker {
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(ready),
                 resources: Some(ctr.resources.clone()),
+                allocated_resources: ctr.resources.requests.clone(),
             });
         }
 
@@ -3607,6 +3595,7 @@ impl PodWorker {
                 container_id: cid_str.map(|s| format!("containerd://{}", s)),
                 started: Some(matches!(ctr_state, ContainerState::Running { .. })),
                 resources: Some(ec.resources.clone()),
+                allocated_resources: ec.resources.requests.clone(),
             });
         }
         ls.ephemeral_container_statuses = new_ephemeral_statuses;
@@ -8759,6 +8748,103 @@ mod tests {
             "app container must be Waiting while init containers are still running, \
              got {:?}",
             app_status.state
+        );
+    }
+
+    // -- init container lastTerminationState ----------------------------------
+
+    /// When a failing init container has been restarted (restart_count > 0) AND
+    /// a `last_terminated_states` snapshot was captured before the restart,
+    /// `update_pod_status` must expose that snapshot as `lastTerminationState`
+    /// in the init container status.
+    ///
+    /// This is required for the `[sig-node] InitContainer` conformance test
+    /// "should not start app containers if init containers fail on a
+    /// RestartAlways pod" (init_container.go:440) which watches for
+    /// `status.LastTerminationState.Terminated != nil` before declaring success.
+    #[tokio::test]
+    async fn test_update_pod_status_init_container_has_last_termination_state() {
+        use chrono::Utc;
+        use kubelet_core::pod::lifecycle::ContainerState;
+
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-init-lt-1", "pod-init-lt-1");
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-fail".to_string(),
+            image: "busybox:latest".to_string(),
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        // Simulate: init container was started once (restart_count == 1) and
+        // exited non-zero.  sync_pod snapshots the state into last_terminated_states.
+        state.restart_counts.insert("init-fail".to_string(), 1);
+        let terminated = ContainerState::Terminated {
+            exit_code: 1,
+            reason: "Error".to_string(),
+            message: None,
+            started_at: Utc::now(),
+            finished_at: Utc::now(),
+        };
+        state
+            .last_terminated_states
+            .insert("init-fail".to_string(), terminated.clone());
+
+        worker.update_pod_status(&pod, &state).await;
+
+        let ls = pm.status.get(&pod.uid).unwrap();
+        let init_status = ls
+            .init_container_statuses
+            .iter()
+            .find(|s| s.name == "init-fail")
+            .expect("init container status must be present");
+
+        assert!(
+            init_status.last_state.is_some(),
+            "lastTerminationState must be Some when restart_count > 0 and \
+             last_terminated_states contains a snapshot"
+        );
+        assert!(
+            matches!(
+                init_status.last_state,
+                Some(ContainerState::Terminated { exit_code: 1, .. })
+            ),
+            "lastTerminationState must reflect the captured Terminated state, \
+             got {:?}",
+            init_status.last_state
+        );
+    }
+
+    /// When restart_count == 0 (init container never restarted), `lastTerminationState`
+    /// must be `None`.
+    #[tokio::test]
+    async fn test_update_pod_status_init_container_no_last_state_on_first_run() {
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-init-lt-2", "pod-init-lt-2");
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-once".to_string(),
+            image: "busybox:latest".to_string(),
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        // restart_count == 0: init container ran once, no restarts yet.
+        let state = PodRuntimeState::default();
+        worker.update_pod_status(&pod, &state).await;
+
+        let ls = pm.status.get(&pod.uid).unwrap();
+        let init_status = ls
+            .init_container_statuses
+            .iter()
+            .find(|s| s.name == "init-once")
+            .expect("init container status must be present");
+
+        assert!(
+            init_status.last_state.is_none(),
+            "lastTerminationState must be None on first run (no restarts), \
+             got {:?}",
+            init_status.last_state
         );
     }
 }

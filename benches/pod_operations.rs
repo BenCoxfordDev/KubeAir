@@ -101,6 +101,7 @@ fn running_status(name: &str) -> ContainerStatus {
         container_id: Some("ctr://abc".to_string()),
         started: Some(true),
         resources: None,
+        allocated_resources: Default::default(),
     }
 }
 
@@ -123,6 +124,7 @@ fn terminated_status(name: &str, exit_code: i32) -> ContainerStatus {
         container_id: None,
         started: Some(false),
         resources: None,
+        allocated_resources: Default::default(),
     }
 }
 
