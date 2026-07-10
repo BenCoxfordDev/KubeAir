@@ -1,5 +1,12 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary")
 
+# Must match Cargo.toml's workspace.package.version. rules_rust's `version`
+# attribute feeds CARGO_PKG_VERSION into the crate at compile time (defaulting
+# to "0.0.0" when unset), which env!("CARGO_PKG_VERSION") in main.rs uses for
+# `kubelet --version`. Without this, Bazel builds report "Kubernetes v0.0.0",
+# which kubeadm's preflight check rejects as too old.
+PACKAGE_VERSION = "1.35.1"
+
 PLATFORMS = [
     "linux_x86_64",
     "linux_arm64",
@@ -14,6 +21,7 @@ rust_binary(
     name = "main",
     srcs = ["main.rs"],
     edition = "2024",
+    version = PACKAGE_VERSION,
     visibility = ["//visibility:public"],
     deps = [
         "//crates/kubelet-app/src:lib",
@@ -34,6 +42,7 @@ rust_binary(
         edition = "2024",
         platform = PLATFORM_TARGETS[platform],
         tags = ["manual"],
+        version = PACKAGE_VERSION,
         visibility = ["//visibility:public"],
         deps = [
             "//crates/kubelet-app/src:lib",

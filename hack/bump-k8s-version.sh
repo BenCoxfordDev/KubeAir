@@ -26,6 +26,7 @@
 #   .version                      Canonical Kubernetes version (read by scripts/workflows/build)
 #   Cargo.toml                    workspace.package.version
 #   MODULE.bazel                  module version declaration
+#   src/BUILD.bazel               PACKAGE_VERSION (CARGO_PKG_VERSION for Bazel builds)
 #   hack/deps/k8s-versions.bzl    K8S_VERSION constant + tool download URLs
 #   hack/build-image/BUILD.bazel  image push tag (major.minor)
 #   SECURITY.md                   supported-versions table
@@ -100,6 +101,14 @@ inplace_replace "$REPO_ROOT/Cargo.toml" \
 log "  MODULE.bazel (module version + K8s tool URLs)"
 inplace_replace "$REPO_ROOT/MODULE.bazel" \
   "s/\Q${OLD_BARE}\E/${NEW_BARE}/g"
+
+# ── src/BUILD.bazel ────────────────────────────────────────────────────────────
+# PACKAGE_VERSION feeds CARGO_PKG_VERSION for `kubelet --version` in Bazel builds;
+# must stay in sync with Cargo.toml's workspace.package.version.
+
+log "  src/BUILD.bazel (PACKAGE_VERSION)"
+inplace_replace "$REPO_ROOT/src/BUILD.bazel" \
+  "s{^PACKAGE_VERSION = \"\Q${OLD_BARE}\E\"}{PACKAGE_VERSION = \"${NEW_BARE}\"}"
 
 # ── hack/deps/k8s-versions.bzl ────────────────────────────────────────────────
 # K8S_VERSION constant and all tool download URL versions (kept in sync with MODULE.bazel).
