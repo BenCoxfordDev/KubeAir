@@ -97,7 +97,7 @@ async fn async_main() -> anyhow::Result<()> {
 
     info!(node = kubelet.node_name(), "Kubelet initialized");
 
-    let node_status = kubelet.initial_node_status();
+    let node_status = kubelet.initial_node_status().await;
     info!(
         node = %node_status.name,
         ready = node_status.is_ready(),

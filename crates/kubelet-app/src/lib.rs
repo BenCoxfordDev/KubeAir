@@ -48,7 +48,7 @@ use kubelet_adapters::sandbox_builder::NodeDnsConfig;
 use kubelet_adapters::url_config::UrlPodSource;
 use kubelet_adapters::volume::CompositeVolumeManager;
 use kubelet_core::config::KubeletConfig;
-use kubelet_core::node::NodeStatus;
+use kubelet_core::node::{NodeCondition, NodeConditionStatus, NodeConditionType, NodeStatus};
 use kubelet_core::pod::PodOperation;
 use kubelet_core::pod::PodUpdate;
 use kubelet_core::pod::manager::PodManager;
@@ -180,6 +180,16 @@ impl Kubelet {
             }
         };
 
+        if let Some(kubeconfig_path) = config.kubeconfig_path.clone() {
+            kubelet_adapters::bootstrap::ensure_kubeconfig(
+                &kubeconfig_path,
+                config.bootstrap_kubeconfig_path.as_deref(),
+                &config.node_name,
+                &config.root_dir.join("pki"),
+            )
+            .await;
+        }
+
         let reporter_mode = kube_connect_mode_from_config(&config);
         let kube_client = KubeNodeReporter::try_connect(&reporter_mode).await;
 
@@ -225,12 +235,11 @@ impl Kubelet {
     }
 
     /// Initialize node status with basic system info.
-    pub fn initial_node_status(&self) -> NodeStatus {
+    pub async fn initial_node_status(&self) -> NodeStatus {
         let mut status = NodeStatus::new(&self.config.node_name);
         use chrono::Utc;
         use kubelet_core::node::{
-            NodeAddress, NodeAddressType, NodeAllocatable, NodeCapacity, NodeCondition,
-            NodeConditionStatus, NodeConditionType, NodeSystemInfo,
+            NodeAddress, NodeAddressType, NodeAllocatable, NodeCapacity, NodeSystemInfo,
         };
 
         status.capacity = NodeCapacity {
@@ -258,12 +267,50 @@ impl Kubelet {
                 address: internal_ip,
             },
         ];
+        let container_runtime_version = self.runtime.runtime_version().await.unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to query container runtime version");
+            "unknown://0.0.0".to_string()
+        });
         status.system_info = NodeSystemInfo {
+            machine_id: read_machine_id(),
+            system_uuid: read_system_uuid(),
+            boot_id: read_boot_id(),
+            kernel_version: read_kernel_version(),
+            os_image: read_os_image(),
+            container_runtime_version,
             kubelet_version: env!("KUBERNETES_VERSION").to_string(),
+            kube_proxy_version: env!("KUBERNETES_VERSION").to_string(),
             operating_system: std::env::consts::OS.to_string(),
-            architecture: std::env::consts::ARCH.to_string(),
-            ..Default::default()
+            architecture: match std::env::consts::ARCH {
+                "x86_64" => "amd64".to_string(),
+                "aarch64" => "arm64".to_string(),
+                other => other.to_string(),
+            },
         };
+        status.set_condition(NodeCondition {
+            condition_type: NodeConditionType::MemoryPressure,
+            status: NodeConditionStatus::False,
+            last_heartbeat_time: Utc::now(),
+            last_transition_time: Utc::now(),
+            reason: "KubeletHasSufficientMemory".to_string(),
+            message: "kubelet has sufficient memory available".to_string(),
+        });
+        status.set_condition(NodeCondition {
+            condition_type: NodeConditionType::DiskPressure,
+            status: NodeConditionStatus::False,
+            last_heartbeat_time: Utc::now(),
+            last_transition_time: Utc::now(),
+            reason: "KubeletHasNoDiskPressure".to_string(),
+            message: "kubelet has no disk pressure".to_string(),
+        });
+        status.set_condition(NodeCondition {
+            condition_type: NodeConditionType::PIDPressure,
+            status: NodeConditionStatus::False,
+            last_heartbeat_time: Utc::now(),
+            last_transition_time: Utc::now(),
+            reason: "KubeletHasSufficientPID".to_string(),
+            message: "kubelet has sufficient PID available".to_string(),
+        });
         status.set_condition(NodeCondition {
             condition_type: NodeConditionType::Ready,
             status: NodeConditionStatus::True,
@@ -600,14 +647,23 @@ impl Kubelet {
 
         let reporter_status = self.reporter.clone();
         let mut node_status_tick = tokio::time::interval(self.config.node_status_update_frequency);
-        let node_status_template = self.initial_node_status();
+        let node_status_template = self.initial_node_status().await;
+        let status_eviction_hard = self.config.eviction_hard.clone();
+        let status_fs_path = self.config.root_dir.to_string_lossy().to_string();
         let node_status_handle = tokio::spawn(async move {
             loop {
                 node_status_tick.tick().await;
-                if let Err(e) = reporter_status
-                    .report_node_status(&node_status_template)
-                    .await
-                {
+                let mut status = node_status_template.clone();
+                let signals = kubelet_adapters::eviction::pressure::collect_signals(
+                    &status_fs_path,
+                    "/var/lib/containerd",
+                );
+                let pressure = kubelet_adapters::eviction::pressure::evaluate_pressure(
+                    &signals,
+                    &status_eviction_hard,
+                );
+                apply_pressure_conditions(&mut status, &pressure);
+                if let Err(e) = reporter_status.report_node_status(&status).await {
                     error!(error = %e, "Failed to report node status");
                 }
             }
@@ -726,6 +782,82 @@ impl Kubelet {
     }
 }
 
+/// Update a node status's MemoryPressure/DiskPressure/PIDPressure conditions
+/// from freshly-evaluated eviction signals, so they reflect real node pressure
+/// on every report instead of staying permanently at their initial value.
+fn apply_pressure_conditions(
+    status: &mut NodeStatus,
+    pressure: &kubelet_adapters::eviction::pressure::PressureConditions,
+) {
+    let now = chrono::Utc::now();
+
+    let (mem_status, mem_reason, mem_message) = if pressure.memory_pressure {
+        (
+            NodeConditionStatus::True,
+            "KubeletHasInsufficientMemory",
+            "kubelet has insufficient memory available",
+        )
+    } else {
+        (
+            NodeConditionStatus::False,
+            "KubeletHasSufficientMemory",
+            "kubelet has sufficient memory available",
+        )
+    };
+    status.set_condition(NodeCondition {
+        condition_type: NodeConditionType::MemoryPressure,
+        status: mem_status,
+        last_heartbeat_time: now,
+        last_transition_time: now,
+        reason: mem_reason.to_string(),
+        message: mem_message.to_string(),
+    });
+
+    let (disk_status, disk_reason, disk_message) = if pressure.disk_pressure {
+        (
+            NodeConditionStatus::True,
+            "KubeletHasDiskPressure",
+            "kubelet has disk pressure",
+        )
+    } else {
+        (
+            NodeConditionStatus::False,
+            "KubeletHasNoDiskPressure",
+            "kubelet has no disk pressure",
+        )
+    };
+    status.set_condition(NodeCondition {
+        condition_type: NodeConditionType::DiskPressure,
+        status: disk_status,
+        last_heartbeat_time: now,
+        last_transition_time: now,
+        reason: disk_reason.to_string(),
+        message: disk_message.to_string(),
+    });
+
+    let (pid_status, pid_reason, pid_message) = if pressure.pid_pressure {
+        (
+            NodeConditionStatus::True,
+            "KubeletHasInsufficientPID",
+            "kubelet has insufficient PID available",
+        )
+    } else {
+        (
+            NodeConditionStatus::False,
+            "KubeletHasSufficientPID",
+            "kubelet has sufficient PID available",
+        )
+    };
+    status.set_condition(NodeCondition {
+        condition_type: NodeConditionType::PIDPressure,
+        status: pid_status,
+        last_heartbeat_time: now,
+        last_transition_time: now,
+        reason: pid_reason.to_string(),
+        message: pid_message.to_string(),
+    });
+}
+
 fn num_cpus_available() -> f64 {
     // In a real implementation we'd read /proc/cpuinfo or use sysinfo crate
     std::thread::available_parallelism()
@@ -751,6 +883,50 @@ fn detect_internal_ip() -> String {
     }
     warn!("Falling back to loopback InternalIP; apiserver node proxy may fail");
     "127.0.0.1".to_string()
+}
+
+/// Read a file and return its trimmed contents, or `None` if missing/empty.
+fn read_trimmed_file(path: &str) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Node machine-id, mirroring `pkg/kubelet/util/machine.go` (`/etc/machine-id`,
+/// falling back to the D-Bus location used on some distros).
+fn read_machine_id() -> String {
+    read_trimmed_file("/etc/machine-id")
+        .or_else(|| read_trimmed_file("/var/lib/dbus/machine-id"))
+        .unwrap_or_default()
+}
+
+/// DMI product UUID (requires root to read on most distros).
+fn read_system_uuid() -> String {
+    read_trimmed_file("/sys/class/dmi/id/product_uuid").unwrap_or_default()
+}
+
+/// Per-boot random ID, refreshed by the kernel on every boot.
+fn read_boot_id() -> String {
+    read_trimmed_file("/proc/sys/kernel/random/boot_id").unwrap_or_default()
+}
+
+/// Kernel release string (`uname -r` equivalent), parsed from `/proc/version`
+/// (e.g. "Linux version 5.15.0-91-generic (...)" -> "5.15.0-91-generic").
+fn read_kernel_version() -> String {
+    read_trimmed_file("/proc/version")
+        .and_then(|s| s.split_whitespace().nth(2).map(|v| v.to_string()))
+        .unwrap_or_default()
+}
+
+/// Human-readable OS name, mirroring `PRETTY_NAME` from `/etc/os-release`.
+fn read_os_image() -> String {
+    let content = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    content
+        .lines()
+        .find_map(|line| line.strip_prefix("PRETTY_NAME="))
+        .map(|v| v.trim_matches('"').to_string())
+        .unwrap_or_default()
 }
 
 fn kube_connect_mode_from_config(config: &KubeletConfig) -> KubeConnectMode {

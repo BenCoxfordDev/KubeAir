@@ -237,6 +237,15 @@ pub trait ContainerRuntime: Send + Sync {
     ) -> Result<()> {
         Ok(())
     }
+
+    /// Report the runtime name and version, formatted as `<name>://<version>`
+    /// to match the Kubernetes `nodeInfo.containerRuntimeVersion` convention
+    /// (e.g. `containerd://1.7.13`).
+    ///
+    /// Runtimes that cannot determine their version can keep the default.
+    async fn runtime_version(&self) -> Result<String> {
+        Ok("unknown://0.0.0".to_string())
+    }
 }
 
 /// Result of a synchronous exec command.

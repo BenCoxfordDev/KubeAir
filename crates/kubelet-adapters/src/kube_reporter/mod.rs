@@ -174,6 +174,7 @@ impl NodeReporter for KubeNodeReporter {
         {
             if is_not_found(&e) {
                 // Upstream node e2e expects kubelet to self-register a Node object.
+                info!(node = %status.name, "Node object not found on API server; registering new node");
                 let apply_patch = build_node_apply_patch(status);
                 nodes
                     .patch(&self.node_name, &patch_params, &Patch::Apply(apply_patch))
@@ -194,6 +195,8 @@ impl NodeReporter for KubeNodeReporter {
                             retry_err
                         ))
                     })?;
+
+                info!(node = %status.name, ready = status.is_ready(), "Node registered with API server");
             } else {
                 return Err(KubeletError::NodeStatus(format!(
                     "PATCH node status: {}",
@@ -486,6 +489,18 @@ pub fn build_node_status_patch(status: &NodeStatus) -> serde_json::Value {
                 "type": format!("{:?}", a.address_type),
                 "address": a.address
             })).collect::<Vec<_>>(),
+            "nodeInfo": {
+                "machineID": status.system_info.machine_id,
+                "systemUUID": status.system_info.system_uuid,
+                "bootID": status.system_info.boot_id,
+                "kernelVersion": status.system_info.kernel_version,
+                "osImage": status.system_info.os_image,
+                "containerRuntimeVersion": status.system_info.container_runtime_version,
+                "kubeletVersion": status.system_info.kubelet_version,
+                "kubeProxyVersion": status.system_info.kube_proxy_version,
+                "operatingSystem": status.system_info.operating_system,
+                "architecture": status.system_info.architecture
+            },
             "capacity": {
                 "cpu": status.capacity.cpu_cores.to_string(),
                 "memory": format!("{}Ki", status.capacity.memory_bytes / 1024),

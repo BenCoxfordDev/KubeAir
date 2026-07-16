@@ -576,6 +576,7 @@ impl KubeletConfiguration {
             node_name,
             api_server_url: "https://localhost:6443".to_string(),
             kubeconfig_path: None,
+            bootstrap_kubeconfig_path: None,
             container_runtime_endpoint: self.container_runtime_endpoint,
             image_service_endpoint: self.image_service_endpoint,
             pod_infra_container_image: self.pod_infra_container_image,
