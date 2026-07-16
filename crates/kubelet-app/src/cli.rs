@@ -149,6 +149,11 @@ pub struct KubeletArgs {
     #[arg(short, long, overrides_with = "v")]
     pub v: Option<u8>,
 
+    /// Log output format: "text" (default, human-readable) or "json"
+    /// (overrides --config logging.format).
+    #[arg(long)]
+    pub log_format: Option<String>,
+
     // -- Compatibility shims (accepted but unused) -------------------------
     //
     // kubeadm and upstream e2e runners inject these flags via
@@ -322,6 +327,9 @@ impl KubeletArgs {
         if let Some(v) = self.v {
             config.log_level = v;
         }
+        if let Some(format) = self.log_format {
+            config.log_format = format;
+        }
 
         config
             .validate()
@@ -361,6 +369,7 @@ mod tests {
             topology_manager_policy: None,
             cgroup_driver: None,
             v: None,
+            log_format: None,
             node_ip: None,
             resolv_conf: None,
             feature_gates: None,
@@ -409,6 +418,7 @@ mod tests {
             topology_manager_policy: Some("best-effort".to_string()),
             cgroup_driver: Some("systemd".to_string()),
             v: Some(4),
+            log_format: None,
             node_ip: None,
             resolv_conf: None,
             feature_gates: None,

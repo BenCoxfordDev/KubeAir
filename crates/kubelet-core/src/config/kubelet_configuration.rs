@@ -596,6 +596,7 @@ impl KubeletConfiguration {
             static_pod_path: self.static_pod_path,
             static_pod_url: self.static_pod_url,
             log_level: self.logging.verbosity,
+            log_format: self.logging.format,
             tls_cert_file: self.tls_cert_file,
             tls_private_key_file: self.tls_private_key_file,
             feature_gates: self.feature_gates,

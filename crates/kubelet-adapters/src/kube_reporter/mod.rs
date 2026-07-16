@@ -474,6 +474,51 @@ pub fn build_node_status_patch(status: &NodeStatus) -> serde_json::Value {
         })
         .collect();
 
+    let mut capacity = serde_json::Map::new();
+    capacity.insert(
+        "cpu".to_string(),
+        status.capacity.cpu_cores.to_string().into(),
+    );
+    capacity.insert(
+        "memory".to_string(),
+        format!("{}Ki", status.capacity.memory_bytes / 1024).into(),
+    );
+    capacity.insert(
+        "ephemeral-storage".to_string(),
+        format!("{}Ki", status.capacity.ephemeral_storage_bytes / 1024).into(),
+    );
+    capacity.insert("pods".to_string(), status.capacity.pods.to_string().into());
+    for (name, bytes) in &status.capacity.hugepages {
+        capacity.insert(name.clone(), format!("{}Ki", bytes / 1024).into());
+    }
+    for (name, count) in &status.capacity.extended_resources {
+        capacity.insert(name.clone(), count.to_string().into());
+    }
+
+    let mut allocatable = serde_json::Map::new();
+    allocatable.insert(
+        "cpu".to_string(),
+        format!("{}m", status.allocatable.cpu_millicores).into(),
+    );
+    allocatable.insert(
+        "memory".to_string(),
+        format!("{}Ki", status.allocatable.memory_bytes / 1024).into(),
+    );
+    allocatable.insert(
+        "ephemeral-storage".to_string(),
+        format!("{}Ki", status.allocatable.ephemeral_storage_bytes / 1024).into(),
+    );
+    allocatable.insert(
+        "pods".to_string(),
+        status.allocatable.pods.to_string().into(),
+    );
+    for (name, bytes) in &status.allocatable.hugepages {
+        allocatable.insert(name.clone(), format!("{}Ki", bytes / 1024).into());
+    }
+    for (name, count) in &status.allocatable.extended_resources {
+        allocatable.insert(name.clone(), count.to_string().into());
+    }
+
     serde_json::json!({
         "apiVersion": "v1",
         "kind": "Node",
@@ -501,16 +546,8 @@ pub fn build_node_status_patch(status: &NodeStatus) -> serde_json::Value {
                 "operatingSystem": status.system_info.operating_system,
                 "architecture": status.system_info.architecture
             },
-            "capacity": {
-                "cpu": status.capacity.cpu_cores.to_string(),
-                "memory": format!("{}Ki", status.capacity.memory_bytes / 1024),
-                "pods": status.capacity.pods.to_string()
-            },
-            "allocatable": {
-                "cpu": status.capacity.cpu_cores.to_string(),
-                "memory": format!("{}Ki", status.capacity.memory_bytes * 9 / (1024 * 10)),
-                "pods": status.capacity.pods.to_string()
-            }
+            "capacity": capacity,
+            "allocatable": allocatable
         }
     })
 }

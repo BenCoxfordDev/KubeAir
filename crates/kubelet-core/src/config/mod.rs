@@ -72,6 +72,8 @@ pub struct KubeletConfig {
 
     // Logging
     pub log_level: u8,
+    /// Log output format: "text" (default, human-readable) or "json".
+    pub log_format: String,
 
     // TLS
     pub tls_cert_file: Option<PathBuf>,
@@ -165,6 +167,7 @@ impl Default for KubeletConfig {
             static_pod_path: None,
             static_pod_url: None,
             log_level: 2,
+            log_format: "text".to_string(),
             tls_cert_file: None,
             tls_private_key_file: None,
             feature_gates: HashMap::new(),

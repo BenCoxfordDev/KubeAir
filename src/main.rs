@@ -33,7 +33,7 @@ use rustls::crypto::ring;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt::time::UtcTime};
 
-fn setup_logging(verbosity: u8) {
+fn setup_logging(verbosity: u8, log_format: &str) {
     let filter = match verbosity {
         0 => "warn",
         1 => "info",
@@ -41,16 +41,25 @@ fn setup_logging(verbosity: u8) {
         _ => "trace",
     };
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(format!("kubelet={}", filter))),
-        )
-        .json()
-        .with_timer(UtcTime::rfc_3339())
-        .with_current_span(false)
-        .with_span_list(false)
-        .init();
+    let env_filter = || {
+        EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new(format!("kubelet={}", filter)))
+    };
+
+    if log_format.eq_ignore_ascii_case("json") {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter())
+            .json()
+            .with_timer(UtcTime::rfc_3339())
+            .with_current_span(false)
+            .with_span_list(false)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter())
+            .with_timer(UtcTime::rfc_3339())
+            .init();
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -86,7 +95,7 @@ async fn async_main() -> anyhow::Result<()> {
 
     // CLI -v takes precedence; fall back to config file logging.verbosity.
     let verbosity = cli_verbosity.unwrap_or(config.log_level);
-    setup_logging(verbosity);
+    setup_logging(verbosity, &config.log_format);
 
     info!(
         version = env!("CARGO_PKG_VERSION"),

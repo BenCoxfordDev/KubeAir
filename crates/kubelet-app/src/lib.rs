@@ -247,7 +247,7 @@ impl Kubelet {
             memory_bytes: total_memory_bytes(),
             pods: self.config.max_pods,
             ephemeral_storage_bytes: 100 * 1024 * 1024 * 1024, // 100Gi placeholder
-            hugepages: Default::default(),
+            hugepages: read_hugepage_capacities(),
             extended_resources: Default::default(),
         };
         status.allocatable = NodeAllocatable {
@@ -255,6 +255,8 @@ impl Kubelet {
             memory_bytes: status.capacity.memory_bytes,
             pods: status.capacity.pods,
             ephemeral_storage_bytes: status.capacity.ephemeral_storage_bytes,
+            hugepages: status.capacity.hugepages.clone(),
+            extended_resources: Default::default(),
         };
         let internal_ip = detect_internal_ip();
         status.addresses = vec![
@@ -408,6 +410,29 @@ impl Kubelet {
             return Err(anyhow::anyhow!(
                 "invalid configuration: node_status_update_frequency must be non-zero"
             ));
+        }
+
+        // Ensure the standard kubelet data directory tree exists up front, mirroring
+        // the Go kubelet's makeDataDirectories(). Several of these are never written
+        // to directly by our own code (e.g. `plugins_registry`, used by CSI driver
+        // registrar sidecars), but DaemonSets commonly hostPath-mount them with
+        // type "Directory" and expect the kubelet to have already created them --
+        // without this, such pods get permanently stuck in ContainerCreating.
+        for subdir in [
+            "pods",
+            "plugins",
+            "plugins_registry",
+            "device-plugins",
+            "checkpoints",
+            "pki",
+        ] {
+            if let Err(e) = tokio::fs::create_dir_all(self.config.root_dir.join(subdir)).await {
+                warn!(
+                    dir = %self.config.root_dir.join(subdir).display(),
+                    error = %e,
+                    "Failed to create kubelet data directory"
+                );
+            }
         }
 
         // Initialize container network (force CNI initialization in containerd)
@@ -650,10 +675,14 @@ impl Kubelet {
         let node_status_template = self.initial_node_status().await;
         let status_eviction_hard = self.config.eviction_hard.clone();
         let status_fs_path = self.config.root_dir.to_string_lossy().to_string();
+        let status_device_manager = device_manager.clone();
         let node_status_handle = tokio::spawn(async move {
             loop {
                 node_status_tick.tick().await;
                 let mut status = node_status_template.clone();
+                let extended_resources = status_device_manager.extended_resources().await;
+                status.capacity.extended_resources = extended_resources.clone();
+                status.allocatable.extended_resources = extended_resources;
                 let signals = kubelet_adapters::eviction::pressure::collect_signals(
                     &status_fs_path,
                     "/var/lib/containerd",
@@ -728,9 +757,20 @@ impl Kubelet {
 
         info!("Kubelet runtime started");
 
+        // systemd's default stop signal is SIGTERM (not SIGINT). Without an
+        // explicit handler, the OS default disposition for SIGTERM is to kill
+        // the process immediately -- before any of our shutdown logging or
+        // cleanup runs. Handle both so `systemctl stop/restart kubelet`
+        // shuts down gracefully and is visible in the logs.
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .map_err(|e| anyhow::anyhow!("failed to install SIGTERM handler: {}", e))?;
+
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                info!("Shutdown signal received");
+                info!("Shutdown signal received (SIGINT)");
+            }
+            _ = sigterm.recv() => {
+                info!("Shutdown signal received (SIGTERM)");
             }
             res = &mut runtime_handle => {
                 match res {
@@ -927,6 +967,55 @@ fn read_os_image() -> String {
         .find_map(|line| line.strip_prefix("PRETTY_NAME="))
         .map(|v| v.trim_matches('"').to_string())
         .unwrap_or_default()
+}
+
+/// Enumerate hugepage sizes supported by the kernel from
+/// `/sys/kernel/mm/hugepages/hugepages-<size>kB/`, mirroring cadvisor's
+/// machine info collection. Every supported size is reported (even when
+/// `nr_hugepages` is 0) so `hugepages-1Gi`/`hugepages-2Mi` always appear in
+/// node capacity/allocatable, matching the real kubelet.
+fn read_hugepage_capacities() -> std::collections::HashMap<String, u64> {
+    let mut result = std::collections::HashMap::new();
+    let Ok(entries) = std::fs::read_dir("/sys/kernel/mm/hugepages") else {
+        return result;
+    };
+    for entry in entries.flatten() {
+        let dir_name = entry.file_name().to_string_lossy().to_string();
+        let Some(size_kb) = dir_name
+            .strip_prefix("hugepages-")
+            .and_then(|s| s.strip_suffix("kB"))
+            .and_then(|s| s.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        let nr_hugepages = std::fs::read_to_string(entry.path().join("nr_hugepages"))
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        let page_size_bytes = size_kb * 1024;
+        result.insert(
+            format!("hugepages-{}", format_binary_size(page_size_bytes)),
+            nr_hugepages * page_size_bytes,
+        );
+    }
+    result
+}
+
+/// Format a byte count using the largest whole binary unit (Gi/Mi/Ki) that
+/// divides it evenly, e.g. `2 * 1024 * 1024 -> "2Mi"`.
+fn format_binary_size(bytes: u64) -> String {
+    const GI: u64 = 1024 * 1024 * 1024;
+    const MI: u64 = 1024 * 1024;
+    const KI: u64 = 1024;
+    if bytes >= GI && bytes.is_multiple_of(GI) {
+        format!("{}Gi", bytes / GI)
+    } else if bytes >= MI && bytes.is_multiple_of(MI) {
+        format!("{}Mi", bytes / MI)
+    } else if bytes >= KI && bytes.is_multiple_of(KI) {
+        format!("{}Ki", bytes / KI)
+    } else {
+        bytes.to_string()
+    }
 }
 
 fn kube_connect_mode_from_config(config: &KubeletConfig) -> KubeConnectMode {
