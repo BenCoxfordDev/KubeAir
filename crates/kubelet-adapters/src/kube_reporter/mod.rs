@@ -397,7 +397,12 @@ impl NodeReporter for KubeNodeReporter {
         let events: Api<K8sEvent> = Api::namespaced(client.clone(), &pod_ref.namespace);
         let now = Utc::now();
         let now_time = Time(now);
-        let event_name = format!("{}.{}", pod_ref.name, reason.to_lowercase());
+        let event_name = format!(
+            "{}.{}.{}",
+            pod_ref.name,
+            container_name,
+            reason.to_lowercase()
+        );
         let event = K8sEvent {
             metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
                 name: Some(event_name),
@@ -834,7 +839,11 @@ impl PodSource for KubePodSource {
                     .timeout(290),
             )
             .boxed();
-            let mut relist_tick = tokio::time::interval(Duration::from_secs(30));
+            // Use a short initial relist interval so the pod manager is
+            // populated quickly after a restart. After the first successful
+            // relist we switch to the normal 30-second cadence.
+            let mut had_successful_relist = false;
+            let mut relist_tick = tokio::time::interval(Duration::from_secs(2));
 
             info!(node = %node_name, "Pod watch stream started");
 
@@ -865,6 +874,12 @@ impl PodSource for KubePodSource {
                                             warn!("Pod source channel closed during relist");
                                             return Ok(());
                                         }
+                                }
+                                // First successful relist: switch to the normal 30-second cadence.
+                                if !had_successful_relist {
+                                    had_successful_relist = true;
+                                    relist_tick = tokio::time::interval(Duration::from_secs(30));
+                                    info!(node = %node_name, "Initial pod relist succeeded; switching to 30s relist interval");
                                 }
                             }
                             Ok(Err(e)) => {
@@ -899,7 +914,7 @@ impl PodSource for KubePodSource {
                 }
             }
 
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
 }
