@@ -5,7 +5,7 @@ load("@rules_rust//rust:defs.bzl", "rust_binary")
 # to "0.0.0" when unset), which env!("CARGO_PKG_VERSION") in main.rs uses for
 # `kubelet --version`. Without this, Bazel builds report "Kubernetes v0.0.0",
 # which kubeadm's preflight check rejects as too old.
-PACKAGE_VERSION = "1.35.1"
+PACKAGE_VERSION = "1.35.2"
 
 PLATFORMS = [
     "linux_x86_64",
