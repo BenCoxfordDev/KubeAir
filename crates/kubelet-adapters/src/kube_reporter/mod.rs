@@ -174,6 +174,7 @@ impl NodeReporter for KubeNodeReporter {
         {
             if is_not_found(&e) {
                 // Upstream node e2e expects kubelet to self-register a Node object.
+                info!(node = %status.name, "Node object not found on API server; registering new node");
                 let apply_patch = build_node_apply_patch(status);
                 nodes
                     .patch(&self.node_name, &patch_params, &Patch::Apply(apply_patch))
@@ -194,6 +195,8 @@ impl NodeReporter for KubeNodeReporter {
                             retry_err
                         ))
                     })?;
+
+                info!(node = %status.name, ready = status.is_ready(), "Node registered with API server");
             } else {
                 return Err(KubeletError::NodeStatus(format!(
                     "PATCH node status: {}",
@@ -394,7 +397,12 @@ impl NodeReporter for KubeNodeReporter {
         let events: Api<K8sEvent> = Api::namespaced(client.clone(), &pod_ref.namespace);
         let now = Utc::now();
         let now_time = Time(now);
-        let event_name = format!("{}.{}", pod_ref.name, reason.to_lowercase());
+        let event_name = format!(
+            "{}.{}.{}",
+            pod_ref.name,
+            container_name,
+            reason.to_lowercase()
+        );
         let event = K8sEvent {
             metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
                 name: Some(event_name),
@@ -471,6 +479,51 @@ pub fn build_node_status_patch(status: &NodeStatus) -> serde_json::Value {
         })
         .collect();
 
+    let mut capacity = serde_json::Map::new();
+    capacity.insert(
+        "cpu".to_string(),
+        status.capacity.cpu_cores.to_string().into(),
+    );
+    capacity.insert(
+        "memory".to_string(),
+        format!("{}Ki", status.capacity.memory_bytes / 1024).into(),
+    );
+    capacity.insert(
+        "ephemeral-storage".to_string(),
+        format!("{}Ki", status.capacity.ephemeral_storage_bytes / 1024).into(),
+    );
+    capacity.insert("pods".to_string(), status.capacity.pods.to_string().into());
+    for (name, bytes) in &status.capacity.hugepages {
+        capacity.insert(name.clone(), format!("{}Ki", bytes / 1024).into());
+    }
+    for (name, count) in &status.capacity.extended_resources {
+        capacity.insert(name.clone(), count.to_string().into());
+    }
+
+    let mut allocatable = serde_json::Map::new();
+    allocatable.insert(
+        "cpu".to_string(),
+        format!("{}m", status.allocatable.cpu_millicores).into(),
+    );
+    allocatable.insert(
+        "memory".to_string(),
+        format!("{}Ki", status.allocatable.memory_bytes / 1024).into(),
+    );
+    allocatable.insert(
+        "ephemeral-storage".to_string(),
+        format!("{}Ki", status.allocatable.ephemeral_storage_bytes / 1024).into(),
+    );
+    allocatable.insert(
+        "pods".to_string(),
+        status.allocatable.pods.to_string().into(),
+    );
+    for (name, bytes) in &status.allocatable.hugepages {
+        allocatable.insert(name.clone(), format!("{}Ki", bytes / 1024).into());
+    }
+    for (name, count) in &status.allocatable.extended_resources {
+        allocatable.insert(name.clone(), count.to_string().into());
+    }
+
     serde_json::json!({
         "apiVersion": "v1",
         "kind": "Node",
@@ -486,16 +539,20 @@ pub fn build_node_status_patch(status: &NodeStatus) -> serde_json::Value {
                 "type": format!("{:?}", a.address_type),
                 "address": a.address
             })).collect::<Vec<_>>(),
-            "capacity": {
-                "cpu": status.capacity.cpu_cores.to_string(),
-                "memory": format!("{}Ki", status.capacity.memory_bytes / 1024),
-                "pods": status.capacity.pods.to_string()
+            "nodeInfo": {
+                "machineID": status.system_info.machine_id,
+                "systemUUID": status.system_info.system_uuid,
+                "bootID": status.system_info.boot_id,
+                "kernelVersion": status.system_info.kernel_version,
+                "osImage": status.system_info.os_image,
+                "containerRuntimeVersion": status.system_info.container_runtime_version,
+                "kubeletVersion": status.system_info.kubelet_version,
+                "kubeProxyVersion": status.system_info.kube_proxy_version,
+                "operatingSystem": status.system_info.operating_system,
+                "architecture": status.system_info.architecture
             },
-            "allocatable": {
-                "cpu": status.capacity.cpu_cores.to_string(),
-                "memory": format!("{}Ki", status.capacity.memory_bytes * 9 / (1024 * 10)),
-                "pods": status.capacity.pods.to_string()
-            }
+            "capacity": capacity,
+            "allocatable": allocatable
         }
     })
 }
@@ -782,7 +839,11 @@ impl PodSource for KubePodSource {
                     .timeout(290),
             )
             .boxed();
-            let mut relist_tick = tokio::time::interval(Duration::from_secs(30));
+            // Use a short initial relist interval so the pod manager is
+            // populated quickly after a restart. After the first successful
+            // relist we switch to the normal 30-second cadence.
+            let mut had_successful_relist = false;
+            let mut relist_tick = tokio::time::interval(Duration::from_secs(2));
 
             info!(node = %node_name, "Pod watch stream started");
 
@@ -813,6 +874,12 @@ impl PodSource for KubePodSource {
                                             warn!("Pod source channel closed during relist");
                                             return Ok(());
                                         }
+                                }
+                                // First successful relist: switch to the normal 30-second cadence.
+                                if !had_successful_relist {
+                                    had_successful_relist = true;
+                                    relist_tick = tokio::time::interval(Duration::from_secs(30));
+                                    info!(node = %node_name, "Initial pod relist succeeded; switching to 30s relist interval");
                                 }
                             }
                             Ok(Err(e)) => {
@@ -847,7 +914,7 @@ impl PodSource for KubePodSource {
                 }
             }
 
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
 }

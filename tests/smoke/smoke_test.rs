@@ -231,7 +231,7 @@ async fn smoke_kubelet_instantiation() {
     let kubelet = kubelet_app::Kubelet::new(config).await;
     assert_eq!(kubelet.node_name(), "smoke-test-node");
 
-    let status = kubelet.initial_node_status();
+    let status = kubelet.initial_node_status().await;
     assert!(status.is_ready());
     assert!(status.capacity.cpu_cores >= 1.0);
 }

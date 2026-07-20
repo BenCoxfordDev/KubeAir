@@ -74,6 +74,8 @@ impl NodeStatusCollector {
             memory_bytes: (self.memory_bytes as f64 * 0.9) as u64,
             pods: self.max_pods,
             ephemeral_storage_bytes: (self.ephemeral_storage_bytes as f64 * 0.9) as u64,
+            hugepages: HashMap::new(),
+            extended_resources: HashMap::new(),
         };
 
         status.addresses = addresses;

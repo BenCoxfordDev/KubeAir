@@ -35,6 +35,13 @@ pub struct KubeletConfig {
     // Kubernetes API server
     pub api_server_url: String,
     pub kubeconfig_path: Option<PathBuf>,
+    /// Path to a bootstrap kubeconfig (kubeadm passes this on `kubeadm join`).
+    ///
+    /// Used only when `kubeconfig_path` does not yet exist on disk: the kubelet
+    /// authenticates with the bootstrap token/cert in this file, submits a
+    /// CertificateSigningRequest for a client certificate, and writes the
+    /// resulting kubeconfig to `kubeconfig_path` once approved.
+    pub bootstrap_kubeconfig_path: Option<PathBuf>,
 
     // Runtime
     pub container_runtime_endpoint: String,
@@ -65,6 +72,8 @@ pub struct KubeletConfig {
 
     // Logging
     pub log_level: u8,
+    /// Log output format: "text" (default, human-readable) or "json".
+    pub log_format: String,
 
     // TLS
     pub tls_cert_file: Option<PathBuf>,
@@ -132,6 +141,7 @@ impl Default for KubeletConfig {
             node_name: String::new(),
             api_server_url: "https://localhost:6443".to_string(),
             kubeconfig_path: None,
+            bootstrap_kubeconfig_path: None,
             container_runtime_endpoint: "unix:///run/containerd/containerd.sock".to_string(),
             image_service_endpoint: None,
             root_dir: PathBuf::from("/var/lib/kubelet"),
@@ -157,6 +167,7 @@ impl Default for KubeletConfig {
             static_pod_path: None,
             static_pod_url: None,
             log_level: 2,
+            log_format: "text".to_string(),
             tls_cert_file: None,
             tls_private_key_file: None,
             feature_gates: HashMap::new(),

@@ -22,6 +22,7 @@ limitations under the License.
 
 pub mod active_deadline;
 pub mod admission;
+pub mod bootstrap;
 pub mod cert_rotator;
 pub mod cgroup;
 pub mod checkpoint;

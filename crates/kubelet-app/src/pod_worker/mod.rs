@@ -2931,7 +2931,7 @@ impl PodWorker {
             };
 
             let entries = docker_auths_from_secret(&secret);
-            warn!(
+            debug!(
                 pod = %pod.pod_ref,
                 secret = %name,
                 auth_entry_count = entries.len(),
@@ -2948,7 +2948,7 @@ impl PodWorker {
 
             for (host, username, password) in entries {
                 if host_matches_registry(&host, &registry) {
-                    warn!(
+                    debug!(
                         pod = %pod.pod_ref,
                         auth_host = host,
                         username,
@@ -2972,7 +2972,7 @@ impl PodWorker {
                 "No matching imagePullSecret credentials found for image registry — pulling without auth (will likely fail for private registries)"
             );
         } else {
-            warn!(
+            debug!(
                 pod = %pod.pod_ref,
                 image,
                 registry,
@@ -3866,7 +3866,7 @@ async fn exchange_gcp_credentials(
         }
         match gcp_sa_json_to_oauth2_token(&s.password).await {
             Ok(token) => {
-                warn!(
+                debug!(
                     pod = pod_ref,
                     server = %s.server,
                     "Exchanged _json_key_base64 service account for OAuth2 access token"

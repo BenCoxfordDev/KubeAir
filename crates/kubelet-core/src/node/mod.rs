@@ -38,6 +38,8 @@ pub struct NodeAllocatable {
     pub memory_bytes: u64,
     pub pods: u32,
     pub ephemeral_storage_bytes: u64,
+    pub hugepages: HashMap<String, u64>,
+    pub extended_resources: HashMap<String, u64>,
 }
 
 /// Current node conditions.

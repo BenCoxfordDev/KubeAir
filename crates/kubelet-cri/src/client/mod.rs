@@ -1066,6 +1066,18 @@ impl ContainerRuntime for ContainerdClient {
         .map_err(|e| KubeletError::Runtime(format!("UpdateContainerResources (resize): {}", e)))?;
         Ok(())
     }
+
+    async fn runtime_version(&self) -> Result<String> {
+        let mut rt = self.runtime.clone();
+        let resp = rt
+            .version(VersionRequest {
+                version: "v1".to_string(),
+            })
+            .await
+            .map_err(|e| KubeletError::Runtime(format!("CRI Version RPC failed: {}", e)))?
+            .into_inner();
+        Ok(format!("{}://{}", resp.runtime_name, resp.runtime_version))
+    }
 }
 
 // -- ImageManager implementation -----------------------------------------------

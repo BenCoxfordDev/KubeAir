@@ -112,9 +112,11 @@ pub struct KubeletArgs {
 
     /// Path to bootstrap kubeconfig (kubeadm passes this for TLS bootstrapping).
     ///
-    /// Accepted for compatibility. After `kubeadm init` the node already has a
-    /// fully-signed `kubelet.conf`; we use `--kubeconfig` instead.
-    #[arg(long, hide = true)]
+    /// When `--kubeconfig` does not yet exist on disk (fresh `kubeadm join`),
+    /// the kubelet uses the bootstrap token/cert in this file to submit a
+    /// CertificateSigningRequest and writes a fully-authenticated kubeconfig
+    /// to `--kubeconfig` once the certificate is issued.
+    #[arg(long)]
     pub bootstrap_kubeconfig: Option<PathBuf>,
 
     // -- TLS ---------------------------------------------------------------
@@ -146,6 +148,11 @@ pub struct KubeletArgs {
     /// Can be specified multiple times; last value wins.
     #[arg(short, long, overrides_with = "v")]
     pub v: Option<u8>,
+
+    /// Log output format: "text" (default, human-readable) or "json"
+    /// (overrides --config logging.format).
+    #[arg(long)]
+    pub log_format: Option<String>,
 
     // -- Compatibility shims (accepted but unused) -------------------------
     //
@@ -269,6 +276,9 @@ impl KubeletArgs {
         if let Some(kc) = self.kubeconfig {
             config.kubeconfig_path = Some(kc);
         }
+        if let Some(bkc) = self.bootstrap_kubeconfig {
+            config.bootstrap_kubeconfig_path = Some(bkc);
+        }
         if let Some(cre) = self.container_runtime_endpoint {
             config.container_runtime_endpoint = cre;
         }
@@ -317,6 +327,9 @@ impl KubeletArgs {
         if let Some(v) = self.v {
             config.log_level = v;
         }
+        if let Some(format) = self.log_format {
+            config.log_format = format;
+        }
 
         config
             .validate()
@@ -356,6 +369,7 @@ mod tests {
             topology_manager_policy: None,
             cgroup_driver: None,
             v: None,
+            log_format: None,
             node_ip: None,
             resolv_conf: None,
             feature_gates: None,
@@ -404,6 +418,7 @@ mod tests {
             topology_manager_policy: Some("best-effort".to_string()),
             cgroup_driver: Some("systemd".to_string()),
             v: Some(4),
+            log_format: None,
             node_ip: None,
             resolv_conf: None,
             feature_gates: None,
