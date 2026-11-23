@@ -947,31 +947,4 @@ mod tests {
             "unconstrained pod must not get a hard memory.max from runtime overhead alone"
         );
     }
-
-    #[tokio::test]
-    async fn test_create_pod_cgroup_unconstrained_with_overhead_writes_no_memory_max() {
-        use tempfile::TempDir;
-
-        let dir = TempDir::new().unwrap();
-        let mgr = CgroupManager::with_driver(dir.path(), CgroupDriver::Cgroupfs, false);
-        let uid = PodUID::new("uid-cg-overhead");
-
-        // Unconstrained pod (container_memory_bytes == 0) with non-zero RuntimeClass overhead
-        // must NOT write memory.max.
-        mgr.create_pod_cgroup_with_memory_limit(
-            &QosClass::Burstable,
-            &uid,
-            0,
-            16 * 1024 * 1024,
-        )
-        .await
-        .unwrap();
-
-        let pod_dir = dir.path().join("kubepods/burstable/poduid-cg-overhead");
-        assert!(pod_dir.exists());
-        assert!(
-            !pod_dir.join("memory.max").exists(),
-            "unconstrained pod must not get a hard memory.max from runtime overhead alone"
-        );
-    }
 }
