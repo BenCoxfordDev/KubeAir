@@ -382,6 +382,7 @@ impl CgroupManager {
         pid: Option<u32>,
     ) -> PathBuf {
         if let Some(pid) = pid
+            && pid != std::process::id()
             && let Some(path) = cgroup_path_for_pid(&self.paths.root, pid)
             && path.exists()
         {
@@ -896,6 +897,34 @@ mod tests {
         );
         assert_eq!(parse_proc_cgroup_v2_path("0::/\n"), None);
         assert_eq!(parse_proc_cgroup_v2_path(""), None);
+    }
+
+    #[test]
+    fn test_resolve_container_cgroup_path_ignores_kubelet_pid() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let mgr = CgroupManager::with_driver(dir.path(), CgroupDriver::Cgroupfs, false);
+        let uid = PodUID::new("uid-cg-self-pid");
+        let kubelet_cgroup = cgroup_path_for_pid(dir.path(), std::process::id()).unwrap();
+        std::fs::create_dir_all(&kubelet_cgroup).unwrap();
+
+        let expected = mgr.paths.container_scope_for_driver(
+            CgroupDriver::Cgroupfs,
+            &QosClass::Burstable,
+            &uid,
+            "ctr-1",
+        );
+        assert_eq!(
+            mgr.resolve_container_cgroup_path(
+                CgroupDriver::Cgroupfs,
+                &QosClass::Burstable,
+                &uid,
+                "ctr-1",
+                Some(std::process::id()),
+            ),
+            expected
+        );
     }
 
     #[test]
