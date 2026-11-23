@@ -3701,17 +3701,22 @@ impl PodWorker {
         self.pod_manager.status.set(pod.uid.clone(), ls);
     }
 
-    /// Calculate total memory requests for all containers in a pod.
     /// Calculates the pod-level memory **limit** for pod cgroup accounting.
     ///
     /// Go kubelet sets the pod-level cgroup `memory.max` only when **every**
     /// container in the pod specifies an explicit memory limit. Requests must
     /// never be turned into a hard `memory.max` cap, and if any container has no
     /// memory limit set, the pod cgroup must remain unconstrained (`0`).
+    ///
+    /// Follows Kubernetes KEP-753 sidecar accounting: restartable init containers
+    /// (`restartPolicy: Always`) remain running alongside subsequent init containers
+    /// and all regular application containers, so their limits accumulate into both
+    /// subsequent init-phase peaks and the steady-state application sum.
     fn calculate_pod_memory_requests(&self, pod: &PodSpec) -> i64 {
         let mut has_any = false;
         let mut regular_sum: i64 = 0;
-        let mut init_max: i64 = 0;
+        let mut sidecar_sum: i64 = 0;
+        let mut init_peak: i64 = 0;
 
         for c in &pod.containers {
             has_any = true;
@@ -3723,14 +3728,20 @@ impl PodWorker {
 
         for c in &pod.init_containers {
             has_any = true;
-            match c.resources.limits.get("memory").map(|q| q.value) {
-                Some(v) if v > 0 => init_max = init_max.max(v),
+            let limit = match c.resources.limits.get("memory").map(|q| q.value) {
+                Some(v) if v > 0 => v,
                 _ => return 0,
+            };
+            if is_sidecar_init_container(c) {
+                sidecar_sum = sidecar_sum.saturating_add(limit);
+                init_peak = init_peak.max(sidecar_sum);
+            } else {
+                init_peak = init_peak.max(sidecar_sum.saturating_add(limit));
             }
         }
 
         if has_any {
-            regular_sum.max(init_max)
+            regular_sum.saturating_add(sidecar_sum).max(init_peak)
         } else {
             0
         }
@@ -8283,6 +8294,71 @@ mod tests {
         assert_eq!(result, 0, "BestEffort pod should return 0 (unconstrained)");
     }
 
+    #[tokio::test]
+    async fn test_pod_cgroup_memory_includes_restartable_sidecar_limits() {
+        use kubelet_core::types::ResourceQuantity;
+
+        let (worker, _, _, _) = make_worker().await;
+        let mib = 1024 * 1024;
+        let make_init = |name: &str, mem_mib: Option<i64>, sidecar: bool| {
+            let mut limits = HashMap::new();
+            if let Some(m) = mem_mib {
+                limits.insert(
+                    "memory".to_string(),
+                    ResourceQuantity::memory_bytes(m * mib),
+                );
+            }
+            kubelet_core::pod::ContainerSpec {
+                name: name.to_string(),
+                image: "busybox:latest".to_string(),
+                resources: ResourceRequirements {
+                    requests: limits.clone(),
+                    limits,
+                },
+                restart_policy: if sidecar {
+                    Some(RestartPolicy::Always)
+                } else {
+                    None
+                },
+                ..Default::default()
+            }
+        };
+
+        // 50Mi app + 50Mi restartable sidecar -> 100Mi concurrent pod cap.
+        let mut pod = make_pod_with_resources(Some(50 * mib), Some(50 * mib));
+        pod.init_containers = vec![make_init("init-sidecar", Some(50), true)];
+        assert_eq!(worker.calculate_pod_memory_requests(&pod), 100 * mib);
+
+        // 50Mi sidecar followed by 80Mi sequential init + 60Mi app:
+        // init peak = 50 + 80 = 130Mi > running sum = 60 + 50 = 110Mi.
+        let mut pod_peak = make_pod_with_resources(Some(60 * mib), Some(60 * mib));
+        pod_peak.init_containers = vec![
+            make_init("sidecar", Some(50), true),
+            make_init("init-after", Some(80), false),
+        ];
+        assert_eq!(worker.calculate_pod_memory_requests(&pod_peak), 130 * mib);
+
+        // 80Mi sequential init BEFORE 50Mi sidecar + 60Mi app:
+        // init exits before sidecar starts, so init peak = 80Mi < running sum = 110Mi.
+        let mut pod_seq_first = make_pod_with_resources(Some(60 * mib), Some(60 * mib));
+        pod_seq_first.init_containers = vec![
+            make_init("init-before", Some(80), false),
+            make_init("sidecar", Some(50), true),
+        ];
+        assert_eq!(
+            worker.calculate_pod_memory_requests(&pod_seq_first),
+            110 * mib
+        );
+
+        // Unlimited sidecar keeps pod unconstrained (0).
+        let mut pod_unlimited_sidecar = make_pod_with_resources(Some(50 * mib), Some(50 * mib));
+        pod_unlimited_sidecar.init_containers = vec![make_init("sidecar", None, true)];
+        assert_eq!(
+            worker.calculate_pod_memory_requests(&pod_unlimited_sidecar),
+            0
+        );
+    }
+
     // ── imagePullSecrets resolution ──────────────────────────────────────────
     //
     // Regression: resolve_image_pull_secrets always returned an empty Vec
@@ -9030,6 +9106,18 @@ mod tests {
         let mut state = PodRuntimeState::default();
         let res = worker.sync_pod(&pod, &mut state).await;
         assert_eq!(res, PodSyncResult::Synced);
+
+        // Verify the parent pod cgroup memory.max includes both the 50Mi regular
+        // container and the 50Mi restartable init-sidecar (100Mi = 104,857,600 bytes).
+        let pod_dir = cg_dir
+            .path()
+            .join("kubepods")
+            .join("guaranteed")
+            .join("poduid-cg-live-1");
+        assert_eq!(
+            cg.read_cgroup_file(&pod_dir, "memory.max").await.unwrap(),
+            "104857600"
+        );
 
         // Verify the cgroupfs target path independently of CgroupPath:
         // sandbox_cgroup_parent() yields "/kubepods/guaranteed/poduid-cg-live-1".
