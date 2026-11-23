@@ -342,9 +342,11 @@ impl CgroupManager {
         if !self.dry_run {
             tokio::fs::create_dir_all(&path).await?;
 
-            // Pod-level memory.max = sum of container memory requests + overhead
-            let pod_memory_limit = container_memory_bytes.saturating_add(overhead_memory_bytes);
-            if pod_memory_limit > 0 {
+            // Only apply a pod-level memory.max when every container has a hard memory limit.
+            // When container_memory_bytes <= 0, the pod is unconstrained even if runtime overhead is set.
+            if container_memory_bytes > 0 {
+                let pod_memory_limit =
+                    container_memory_bytes.saturating_add(overhead_memory_bytes.max(0));
                 let limit_val = pod_memory_limit.to_string();
                 self.write_cgroup_file(&path, "memory.max", &limit_val)
                     .await?;
@@ -368,8 +370,9 @@ impl CgroupManager {
     }
 
     /// Resolve the cgroup directory for a container, preferring `/proc/<pid>/cgroup`
-    /// when a runtime-reported PID is available and falling back to the configured
-    /// [`CgroupDriver`] hierarchy.
+    /// when a runtime-reported PID resolves to an existing directory under the
+    /// configured cgroup root, and falling back to the configured [`CgroupDriver`]
+    /// hierarchy otherwise.
     pub fn resolve_container_cgroup_path(
         &self,
         driver: CgroupDriver,
@@ -380,6 +383,7 @@ impl CgroupManager {
     ) -> PathBuf {
         if let Some(pid) = pid
             && let Some(path) = cgroup_path_for_pid(&self.paths.root, pid)
+            && path.exists()
         {
             return path;
         }
@@ -920,5 +924,54 @@ mod tests {
             assert_eq!(cg.cpu_period_us, Some(DEFAULT_CPU_PERIOD_US));
             assert_eq!(cg.memory_limit_bytes, Some(32 * 1024 * 1024));
         }
+    }
+
+    #[tokio::test]
+    async fn test_create_pod_cgroup_unconstrained_with_overhead_writes_no_memory_max() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let mgr = CgroupManager::with_driver(dir.path(), CgroupDriver::Cgroupfs, false);
+        let uid = PodUID::new("uid-cg-overhead");
+
+        // Unconstrained pod (container_memory_bytes == 0) with non-zero RuntimeClass overhead
+        // must NOT write memory.max.
+        mgr.create_pod_cgroup_with_memory_limit(&QosClass::Burstable, &uid, 0, 16 * 1024 * 1024)
+            .await
+            .unwrap();
+
+        let pod_dir = dir.path().join("kubepods/burstable/poduid-cg-overhead");
+        assert!(pod_dir.exists());
+        assert!(
+            !pod_dir.join("memory.max").exists(),
+            "unconstrained pod must not get a hard memory.max from runtime overhead alone"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_pod_cgroup_unconstrained_with_overhead_writes_no_memory_max() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let mgr = CgroupManager::with_driver(dir.path(), CgroupDriver::Cgroupfs, false);
+        let uid = PodUID::new("uid-cg-overhead");
+
+        // Unconstrained pod (container_memory_bytes == 0) with non-zero RuntimeClass overhead
+        // must NOT write memory.max.
+        mgr.create_pod_cgroup_with_memory_limit(
+            &QosClass::Burstable,
+            &uid,
+            0,
+            16 * 1024 * 1024,
+        )
+        .await
+        .unwrap();
+
+        let pod_dir = dir.path().join("kubepods/burstable/poduid-cg-overhead");
+        assert!(pod_dir.exists());
+        assert!(
+            !pod_dir.join("memory.max").exists(),
+            "unconstrained pod must not get a hard memory.max from runtime overhead alone"
+        );
     }
 }

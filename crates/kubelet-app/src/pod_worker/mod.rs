@@ -3702,30 +3702,38 @@ impl PodWorker {
     }
 
     /// Calculate total memory requests for all containers in a pod.
-    /// Calculates the sum of container memory **limits** for pod-level cgroup accounting.
+    /// Calculates the pod-level memory **limit** for pod cgroup accounting.
     ///
-    /// Go kubelet sets the pod-level cgroup memory.max to the sum of container
-    /// limits (not requests). Using requests here would cap the pod cgroup below
-    /// individual container limits, causing kernel OOM kills even when the
-    /// container's own cgroup limit hasn't been reached (observed: calico-apiserver
-    /// with requests=24Mi, limits=128Mi was OOM-killed at 24Mi by the pod cgroup).
-    ///
-    /// Falls back to requests for containers that have no memory limit set.
-    /// Returns 0 (no pod-level cgroup limit) if all containers are BestEffort.
+    /// Go kubelet sets the pod-level cgroup `memory.max` only when **every**
+    /// container in the pod specifies an explicit memory limit. Requests must
+    /// never be turned into a hard `memory.max` cap, and if any container has no
+    /// memory limit set, the pod cgroup must remain unconstrained (`0`).
     fn calculate_pod_memory_requests(&self, pod: &PodSpec) -> i64 {
-        pod.containers
-            .iter()
-            .chain(pod.init_containers.iter())
-            .map(|c| {
-                // Prefer limit; fall back to request; zero means unconstrained.
-                c.resources
-                    .limits
-                    .get("memory")
-                    .or_else(|| c.resources.requests.get("memory"))
-                    .and_then(|q| if q.value > 0 { Some(q.value) } else { None })
-                    .unwrap_or(0)
-            })
-            .sum()
+        let mut has_any = false;
+        let mut regular_sum: i64 = 0;
+        let mut init_max: i64 = 0;
+
+        for c in &pod.containers {
+            has_any = true;
+            match c.resources.limits.get("memory").map(|q| q.value) {
+                Some(v) if v > 0 => regular_sum = regular_sum.saturating_add(v),
+                _ => return 0,
+            }
+        }
+
+        for c in &pod.init_containers {
+            has_any = true;
+            match c.resources.limits.get("memory").map(|q| q.value) {
+                Some(v) if v > 0 => init_max = init_max.max(v),
+                _ => return 0,
+            }
+        }
+
+        if has_any {
+            regular_sum.max(init_max)
+        } else {
+            0
+        }
     }
 }
 
@@ -8224,8 +8232,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pod_cgroup_memory_falls_back_to_requests_when_no_limit() {
-        // No limits set → fall back to requests.
+    async fn test_pod_cgroup_memory_unconstrained_when_no_limit() {
+        // Only requests set (no limits) → pod cgroup must stay unconstrained (0).
         let (worker, _, _, _) = make_worker().await;
         let pod = make_pod_with_resources(
             None,                   // no limit
@@ -8233,9 +8241,36 @@ mod tests {
         );
         let result = worker.calculate_pod_memory_requests(&pod);
         assert_eq!(
-            result,
-            64 * 1024 * 1024,
-            "Should fall back to requests when no limit is set"
+            result, 0,
+            "Memory requests without a limit must not become a hard pod cgroup limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pod_cgroup_memory_unconstrained_for_mixed_limited_and_unlimited_containers() {
+        use kubelet_core::types::ResourceQuantity;
+
+        let (worker, _, _, _) = make_worker().await;
+        let mut pod = make_pod_with_resources(
+            Some(128 * 1024 * 1024), // limited container
+            Some(64 * 1024 * 1024),
+        );
+        pod.containers.push(kubelet_core::pod::ContainerSpec {
+            name: "unlimited".to_string(),
+            image: "busybox:latest".to_string(),
+            resources: ResourceRequirements {
+                requests: HashMap::from([(
+                    "memory".to_string(),
+                    ResourceQuantity::memory_bytes(32 * 1024 * 1024),
+                )]),
+                limits: HashMap::new(),
+            },
+            ..Default::default()
+        });
+        let result = worker.calculate_pod_memory_requests(&pod);
+        assert_eq!(
+            result, 0,
+            "Mixed pod with an unlimited container must keep pod cgroup unconstrained"
         );
     }
 
