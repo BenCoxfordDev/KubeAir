@@ -30,7 +30,7 @@ use chrono::Utc;
 use dashmap::DashMap;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service, ServiceAccount};
 use kube::{Api, Client as KubeClient, api::ListParams};
-use kubelet_adapters::cgroup::{CgroupManager, CgroupResources};
+use kubelet_adapters::cgroup::{CgroupDriver, CgroupManager, CgroupResources};
 use kubelet_adapters::checkpoint::{CheckpointManager, PodCheckpoint};
 use kubelet_adapters::device_manager::DeviceManager;
 use kubelet_adapters::lifecycle::{run_post_start, run_pre_stop};
@@ -2677,11 +2677,28 @@ impl PodWorker {
         }
 
         // Enforce container-level cgroup resource limits immediately after start.
+        // Resolve the actual container cgroup via /proc/<pid>/cgroup when the runtime
+        // reports a PID, falling back to the configured cgroup driver hierarchy.
         let qos = compute_qos_class(pod);
+        let cgroup_driver = CgroupDriver::parse(&self.cgroup_driver);
+        let container_pid = self
+            .runtime
+            .container_status(&cid)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|s| s.pid);
+        let cgroup_path = self.cgroup_mgr.resolve_container_cgroup_path(
+            cgroup_driver,
+            &qos,
+            &pod.uid,
+            &cid.0,
+            container_pid,
+        );
         let cgroup_resources = CgroupResources::from_container_spec(&ctr.resources, &qos);
         if let Err(e) = self
             .cgroup_mgr
-            .apply_resources(&qos, &pod.uid, &cid.0, &cgroup_resources)
+            .apply_resources_to_path(&cgroup_path, &cgroup_resources)
             .await
         {
             warn!(
@@ -8909,13 +8926,11 @@ mod tests {
     }
 
     /// Verifies that `start_container` writes `cpu.max`, `cpu.weight`, and `memory.max`
-    /// into the container's cgroup scope directory for regular, init, and ephemeral
-    /// containers when `CgroupManager` is live (non-dry-run).
+    /// into the cgroupfs container cgroup directory matching `sandbox_cgroup_parent()`
+    /// (`/kubepods/{qos}/pod{uid}/{cid}`) for regular, init, and ephemeral containers.
     #[tokio::test]
     async fn test_start_container_writes_cgroup_files() {
-        use kubelet_adapters::cgroup::{CgroupPath, shares_to_weight};
         use kubelet_core::pod::ResourceRequirements;
-        use kubelet_core::qos::QosClass;
         use kubelet_core::types::ResourceQuantity;
 
         let (tx, _rx) = mpsc::channel(100);
@@ -8924,7 +8939,11 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let cg_dir = tempfile::TempDir::new().unwrap();
         let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
-        let cg = Arc::new(CgroupManager::new(cg_dir.path(), false));
+        let cg = Arc::new(CgroupManager::with_driver(
+            cg_dir.path(),
+            CgroupDriver::Cgroupfs,
+            false,
+        ));
         let vm = Arc::new(LocalVolumeManager::new(dir.path()));
 
         let worker = PodWorker::new(
@@ -8977,25 +8996,124 @@ mod tests {
         let res = worker.sync_pod(&pod, &mut state).await;
         assert_eq!(res, PodSyncResult::Synced);
 
-        let paths = CgroupPath::new(cg_dir.path());
+        // Verify the cgroupfs target path independently of CgroupPath:
+        // sandbox_cgroup_parent() yields "/kubepods/guaranteed/poduid-cg-live-1".
         for ctr_name in ["init-sidecar", "nginx", "ephem"] {
             let cid = state
                 .container_ids
                 .get(ctr_name)
                 .expect("container id should be recorded");
-            let scope = paths.container_scope(&QosClass::Guaranteed, &pod.uid, cid);
+            let expected_dir = cg_dir
+                .path()
+                .join("kubepods")
+                .join("guaranteed")
+                .join("poduid-cg-live-1")
+                .join(cid);
             assert_eq!(
-                cg.read_cgroup_file(&scope, "cpu.max").await.unwrap(),
+                cg.read_cgroup_file(&expected_dir, "cpu.max").await.unwrap(),
                 "5000 100000"
             );
             assert_eq!(
-                cg.read_cgroup_file(&scope, "memory.max").await.unwrap(),
+                cg.read_cgroup_file(&expected_dir, "memory.max")
+                    .await
+                    .unwrap(),
                 "52428800"
             );
             assert_eq!(
-                cg.read_cgroup_file(&scope, "cpu.weight").await.unwrap(),
-                shares_to_weight(51).to_string()
+                cg.read_cgroup_file(&expected_dir, "cpu.weight")
+                    .await
+                    .unwrap(),
+                "11"
             );
         }
+        assert!(
+            !cg_dir.path().join("kubepods.slice").exists(),
+            "cgroupfs driver must not create systemd kubepods.slice hierarchy"
+        );
+    }
+
+    /// Verifies that with `cgroup_driver = "systemd"`, `start_container` writes
+    /// resource files into the systemd slice/scope path independently of `CgroupPath`.
+    #[tokio::test]
+    async fn test_start_container_writes_cgroup_files_systemd() {
+        use kubelet_core::pod::ResourceRequirements;
+        use kubelet_core::types::ResourceQuantity;
+
+        let (tx, _rx) = mpsc::channel(100);
+        let pm = Arc::new(PodManager::new(tx));
+        let rt = Arc::new(MockRuntime::new());
+        let dir = tempfile::TempDir::new().unwrap();
+        let cg_dir = tempfile::TempDir::new().unwrap();
+        let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
+        let cg = Arc::new(CgroupManager::with_driver(
+            cg_dir.path(),
+            CgroupDriver::Systemd,
+            false,
+        ));
+        let vm = Arc::new(LocalVolumeManager::new(dir.path()));
+
+        let worker = PodWorker::new(
+            pm.clone(),
+            rt.clone(),
+            rt.clone(),
+            vm,
+            cm,
+            cg.clone(),
+            Arc::new(HashMap::new()),
+            "systemd",
+            dir.path(),
+            "/var/log/pods",
+            "registry.k8s.io/pause:3.9",
+            None,
+            "node1",
+            Arc::new(InMemoryNodeReporter::new()),
+            NodeDnsConfig::default(),
+            Arc::new(DeviceManager::new("/tmp")),
+        );
+
+        let mut pod = make_pod("uid-cg-systemd-1", "pod-cg-systemd-1");
+        let mut reqs = HashMap::new();
+        // Use 1m CPU to also verify the 1,000 us cgroup v2 minimum quota clamp end-to-end.
+        reqs.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(1));
+        reqs.insert(
+            "memory".to_string(),
+            ResourceQuantity::memory_bytes(52_428_800),
+        );
+        pod.containers[0].resources = ResourceRequirements {
+            requests: reqs.clone(),
+            limits: reqs,
+        };
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        let res = worker.sync_pod(&pod, &mut state).await;
+        assert_eq!(res, PodSyncResult::Synced);
+
+        let cid = state
+            .container_ids
+            .get("nginx")
+            .expect("container id should be recorded");
+        let expected_dir = cg_dir
+            .path()
+            .join("kubepods.slice")
+            .join("kubepods-guaranteed.slice")
+            .join("kubepods-guaranteed-poduid_cg_systemd_1.slice")
+            .join(format!("cri-containerd-{}.scope", cid));
+        assert_eq!(
+            cg.read_cgroup_file(&expected_dir, "cpu.max").await.unwrap(),
+            "1000 100000"
+        );
+        assert_eq!(
+            cg.read_cgroup_file(&expected_dir, "memory.max")
+                .await
+                .unwrap(),
+            "52428800"
+        );
+        assert_eq!(
+            cg.read_cgroup_file(&expected_dir, "cpu.weight")
+                .await
+                .unwrap(),
+            "1"
+        );
     }
 }
