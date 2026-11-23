@@ -30,7 +30,7 @@ use chrono::Utc;
 use dashmap::DashMap;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service, ServiceAccount};
 use kube::{Api, Client as KubeClient, api::ListParams};
-use kubelet_adapters::cgroup::CgroupManager;
+use kubelet_adapters::cgroup::{CgroupManager, CgroupResources};
 use kubelet_adapters::checkpoint::{CheckpointManager, PodCheckpoint};
 use kubelet_adapters::device_manager::DeviceManager;
 use kubelet_adapters::lifecycle::{run_post_start, run_pre_stop};
@@ -2676,6 +2676,22 @@ impl PodWorker {
             return Err(e);
         }
 
+        // Enforce container-level cgroup resource limits immediately after start.
+        let qos = compute_qos_class(pod);
+        let cgroup_resources = CgroupResources::from_container_spec(&ctr.resources, &qos);
+        if let Err(e) = self
+            .cgroup_mgr
+            .apply_resources(&qos, &pod.uid, &cid.0, &cgroup_resources)
+            .await
+        {
+            warn!(
+                pod = %pod.pod_ref,
+                container = %ctr.name,
+                error = %e,
+                "Failed to apply container cgroup resources (non-fatal)"
+            );
+        }
+
         // PostStart lifecycle hook — if defined, run it immediately after start.
         // On failure, stop the container and return an error (pod worker will retry/fail).
         if let Some(lc) = &ctr.lifecycle
@@ -2693,7 +2709,6 @@ impl PodWorker {
         // because some runtimes do not surface a container PID in status.
         if let Ok(Some(status)) = self.runtime.container_status(&cid).await {
             if let Some(pid) = status.pid {
-                let qos = compute_qos_class(pod);
                 let requested_memory: u64 = pod
                     .containers
                     .iter()
@@ -8846,5 +8861,141 @@ mod tests {
              got {:?}",
             init_status.last_state
         );
+    }
+
+    /// Dry-run smoke test: starting regular, init, and ephemeral containers with
+    /// resource requests/limits invokes `CgroupManager::apply_resources` without error.
+    #[tokio::test]
+    async fn test_start_container_applies_cgroup_resources_dry_run() {
+        use kubelet_core::pod::ResourceRequirements;
+        use kubelet_core::types::ResourceQuantity;
+
+        let (worker, pm, _rx, _dir) = make_worker().await;
+        let mut pod = make_pod("uid-cg-smoke-1", "pod-cg-smoke-1");
+
+        let mut reqs = HashMap::new();
+        reqs.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(50));
+        reqs.insert(
+            "memory".to_string(),
+            ResourceQuantity::memory_bytes(52_428_800),
+        );
+        let resources = ResourceRequirements {
+            requests: reqs.clone(),
+            limits: reqs,
+        };
+
+        pod.containers[0].resources = resources.clone();
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-sidecar".to_string(),
+            image: "busybox:latest".to_string(),
+            resources: resources.clone(),
+            restart_policy: Some(RestartPolicy::Always),
+            ..Default::default()
+        }];
+        pod.ephemeral_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "debugger".to_string(),
+            image: "busybox:latest".to_string(),
+            resources,
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        let res = worker.sync_pod(&pod, &mut state).await;
+        assert_eq!(res, PodSyncResult::Synced);
+        assert!(state.container_ids.contains_key("init-sidecar"));
+        assert!(state.container_ids.contains_key("nginx"));
+        assert!(state.container_ids.contains_key("debugger"));
+    }
+
+    /// Verifies that `start_container` writes `cpu.max`, `cpu.weight`, and `memory.max`
+    /// into the container's cgroup scope directory for regular, init, and ephemeral
+    /// containers when `CgroupManager` is live (non-dry-run).
+    #[tokio::test]
+    async fn test_start_container_writes_cgroup_files() {
+        use kubelet_adapters::cgroup::{CgroupPath, shares_to_weight};
+        use kubelet_core::pod::ResourceRequirements;
+        use kubelet_core::qos::QosClass;
+        use kubelet_core::types::ResourceQuantity;
+
+        let (tx, _rx) = mpsc::channel(100);
+        let pm = Arc::new(PodManager::new(tx));
+        let rt = Arc::new(MockRuntime::new());
+        let dir = tempfile::TempDir::new().unwrap();
+        let cg_dir = tempfile::TempDir::new().unwrap();
+        let cm = Arc::new(CheckpointManager::new(dir.path()).unwrap());
+        let cg = Arc::new(CgroupManager::new(cg_dir.path(), false));
+        let vm = Arc::new(LocalVolumeManager::new(dir.path()));
+
+        let worker = PodWorker::new(
+            pm.clone(),
+            rt.clone(),
+            rt.clone(),
+            vm,
+            cm,
+            cg.clone(),
+            Arc::new(HashMap::new()),
+            "cgroupfs",
+            dir.path(),
+            "/var/log/pods",
+            "registry.k8s.io/pause:3.9",
+            None,
+            "node1",
+            Arc::new(InMemoryNodeReporter::new()),
+            NodeDnsConfig::default(),
+            Arc::new(DeviceManager::new("/tmp")),
+        );
+
+        let mut pod = make_pod("uid-cg-live-1", "pod-cg-live-1");
+        let mut reqs = HashMap::new();
+        reqs.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(50));
+        reqs.insert(
+            "memory".to_string(),
+            ResourceQuantity::memory_bytes(52_428_800),
+        );
+        let resources = ResourceRequirements {
+            requests: reqs.clone(),
+            limits: reqs,
+        };
+        pod.containers[0].resources = resources.clone();
+        pod.init_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "init-sidecar".to_string(),
+            image: "busybox:latest".to_string(),
+            resources: resources.clone(),
+            restart_policy: Some(RestartPolicy::Always),
+            ..Default::default()
+        }];
+        pod.ephemeral_containers = vec![kubelet_core::pod::ContainerSpec {
+            name: "ephem".to_string(),
+            image: "busybox:latest".to_string(),
+            resources,
+            ..Default::default()
+        }];
+        pm.upsert(pod.clone()).await.unwrap();
+
+        let mut state = PodRuntimeState::default();
+        let res = worker.sync_pod(&pod, &mut state).await;
+        assert_eq!(res, PodSyncResult::Synced);
+
+        let paths = CgroupPath::new(cg_dir.path());
+        for ctr_name in ["init-sidecar", "nginx", "ephem"] {
+            let cid = state
+                .container_ids
+                .get(ctr_name)
+                .expect("container id should be recorded");
+            let scope = paths.container_scope(&QosClass::Guaranteed, &pod.uid, cid);
+            assert_eq!(
+                cg.read_cgroup_file(&scope, "cpu.max").await.unwrap(),
+                "5000 100000"
+            );
+            assert_eq!(
+                cg.read_cgroup_file(&scope, "memory.max").await.unwrap(),
+                "52428800"
+            );
+            assert_eq!(
+                cg.read_cgroup_file(&scope, "cpu.weight").await.unwrap(),
+                shares_to_weight(51).to_string()
+            );
+        }
     }
 }

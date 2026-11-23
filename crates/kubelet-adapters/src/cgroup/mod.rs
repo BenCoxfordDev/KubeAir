@@ -22,10 +22,16 @@ limitations under the License.
 //! Mirrors pkg/kubelet/cm/cgroup_manager_linux.go.
 
 use kubelet_core::error::{KubeletError, Result};
+use kubelet_core::pod::ResourceRequirements;
 use kubelet_core::qos::QosClass;
 use kubelet_core::types::PodUID;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
+
+/// Default CFS CPU period in microseconds (100 ms, standard Kubernetes value).
+pub const DEFAULT_CPU_PERIOD_US: u64 = 100_000;
+const MIN_CPU_SHARES: i64 = 2;
+const MAX_CPU_SHARES: i64 = 262_144;
 
 // -- cgroup hierarchy ----------------------------------------------------------
 
@@ -77,7 +83,7 @@ impl CgroupPath {
 // -- Resource limits -----------------------------------------------------------
 
 /// Resource limits to apply to a cgroup.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CgroupResources {
     /// CPU quota in microseconds per period (cpu.max: quota period).
     pub cpu_quota_us: Option<i64>,
@@ -117,6 +123,79 @@ impl CgroupResources {
                 ..Default::default()
             },
         }
+    }
+
+    /// Convert a container's Kubernetes [`ResourceRequirements`] and pod [`QosClass`]
+    /// into cgroup v2 resource limits.
+    ///
+    /// - **BestEffort**: returns all `None` (no cgroup writes needed).
+    /// - **Guaranteed**: sets `cpu_shares` from CPU requests (falling back to CPU
+    ///   limits if requests are omitted), `cpu_quota_us`/`cpu_period_us` from CPU
+    ///   limits, and `memory_limit_bytes` from memory limits.
+    /// - **Burstable**: sets `cpu_shares` from CPU requests if present; sets
+    ///   `cpu_quota_us`/`cpu_period_us` and `memory_limit_bytes` only if limits
+    ///   are present.
+    pub fn from_container_spec(resources: &ResourceRequirements, qos: &QosClass) -> Self {
+        if *qos == QosClass::BestEffort {
+            return Self::default();
+        }
+
+        let cpu_req_millis = resources
+            .requests
+            .get("cpu")
+            .map(|q| q.value)
+            .filter(|&v| v > 0)
+            .or_else(|| {
+                if *qos == QosClass::Guaranteed {
+                    resources
+                        .limits
+                        .get("cpu")
+                        .map(|q| q.value)
+                        .filter(|&v| v > 0)
+                } else {
+                    None
+                }
+            });
+
+        let cpu_shares = cpu_req_millis.map(|milli_cpu| {
+            ((milli_cpu.saturating_mul(1024)) / 1000).clamp(MIN_CPU_SHARES, MAX_CPU_SHARES) as u64
+        });
+
+        let (cpu_quota_us, cpu_period_us) = match resources
+            .limits
+            .get("cpu")
+            .map(|q| q.value)
+            .filter(|&v| v > 0)
+        {
+            Some(milli_cpu) => {
+                let quota = (milli_cpu.saturating_mul(DEFAULT_CPU_PERIOD_US as i64)) / 1000;
+                (Some(quota), Some(DEFAULT_CPU_PERIOD_US))
+            }
+            None => (None, None),
+        };
+
+        let memory_limit_bytes = resources
+            .limits
+            .get("memory")
+            .map(|q| q.value)
+            .filter(|&v| v > 0);
+
+        Self {
+            cpu_quota_us,
+            cpu_period_us,
+            cpu_shares,
+            memory_limit_bytes,
+            ..Default::default()
+        }
+    }
+
+    /// Returns `true` when no cgroup control files need to be written.
+    pub fn is_empty(&self) -> bool {
+        self.cpu_quota_us.is_none()
+            && self.cpu_shares.is_none()
+            && self.memory_limit_bytes.is_none()
+            && self.memory_high_bytes.is_none()
+            && self.pids_max.is_none()
     }
 }
 
@@ -206,7 +285,7 @@ impl CgroupManager {
         let cgroup_path = self.paths.container_scope(qos, uid, container_id);
         debug!(path = %cgroup_path.display(), "Applying cgroup resources");
 
-        if self.dry_run {
+        if self.dry_run || resources.is_empty() {
             return Ok(());
         }
 
@@ -437,5 +516,182 @@ mod tests {
             .await
             .unwrap();
         assert!(!cgroup_path.exists());
+    }
+
+    #[test]
+    fn test_from_container_spec_best_effort() {
+        let reqs = ResourceRequirements::default();
+        let cg = CgroupResources::from_container_spec(&reqs, &QosClass::BestEffort);
+        assert_eq!(cg, CgroupResources::default());
+        assert!(cg.is_empty());
+    }
+
+    #[test]
+    fn test_from_container_spec_guaranteed() {
+        use kubelet_core::types::ResourceQuantity;
+        use std::collections::HashMap;
+
+        let mut requests = HashMap::new();
+        requests.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(50));
+        requests.insert(
+            "memory".to_string(),
+            ResourceQuantity::memory_bytes(52_428_800),
+        );
+        let limits = requests.clone();
+        let reqs = ResourceRequirements { requests, limits };
+
+        let cg = CgroupResources::from_container_spec(&reqs, &QosClass::Guaranteed);
+        assert_eq!(cg.cpu_shares, Some(51)); // (50 * 1024) / 1000 = 51
+        assert_eq!(cg.cpu_quota_us, Some(5_000)); // (50 * 100_000) / 1000 = 5000
+        assert_eq!(cg.cpu_period_us, Some(DEFAULT_CPU_PERIOD_US));
+        assert_eq!(cg.memory_limit_bytes, Some(52_428_800));
+        assert!(!cg.is_empty());
+    }
+
+    #[test]
+    fn test_from_container_spec_burstable_requests_and_limits() {
+        use kubelet_core::types::ResourceQuantity;
+        use std::collections::HashMap;
+
+        let mut requests = HashMap::new();
+        requests.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(250));
+        requests.insert(
+            "memory".to_string(),
+            ResourceQuantity::memory_bytes(64 * 1024 * 1024),
+        );
+        let mut limits = HashMap::new();
+        limits.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(500));
+        limits.insert(
+            "memory".to_string(),
+            ResourceQuantity::memory_bytes(128 * 1024 * 1024),
+        );
+        let reqs = ResourceRequirements { requests, limits };
+
+        let cg = CgroupResources::from_container_spec(&reqs, &QosClass::Burstable);
+        assert_eq!(cg.cpu_shares, Some(256)); // (250 * 1024) / 1000 = 256
+        assert_eq!(cg.cpu_quota_us, Some(50_000));
+        assert_eq!(cg.cpu_period_us, Some(DEFAULT_CPU_PERIOD_US));
+        assert_eq!(cg.memory_limit_bytes, Some(128 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_from_container_spec_burstable_requests_only() {
+        use kubelet_core::types::ResourceQuantity;
+        use std::collections::HashMap;
+
+        let mut requests = HashMap::new();
+        requests.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(500));
+        requests.insert(
+            "memory".to_string(),
+            ResourceQuantity::memory_bytes(64 * 1024 * 1024),
+        );
+        let reqs = ResourceRequirements {
+            requests,
+            limits: HashMap::new(),
+        };
+
+        let cg = CgroupResources::from_container_spec(&reqs, &QosClass::Burstable);
+        assert_eq!(cg.cpu_shares, Some(512));
+        assert!(cg.cpu_quota_us.is_none());
+        assert!(cg.cpu_period_us.is_none());
+        assert!(cg.memory_limit_bytes.is_none());
+    }
+
+    #[test]
+    fn test_from_container_spec_cpu_shares_clamping() {
+        use kubelet_core::types::ResourceQuantity;
+        use std::collections::HashMap;
+
+        // 1m -> (1 * 1024) / 1000 = 1 -> clamped to min 2
+        let mut req_min = HashMap::new();
+        req_min.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(1));
+        let cg_min = CgroupResources::from_container_spec(
+            &ResourceRequirements {
+                requests: req_min,
+                limits: HashMap::new(),
+            },
+            &QosClass::Burstable,
+        );
+        assert_eq!(cg_min.cpu_shares, Some(2));
+
+        // 1_000_000m (1000 cores) -> clamped to max 262_144
+        let mut req_max = HashMap::new();
+        req_max.insert(
+            "cpu".to_string(),
+            ResourceQuantity::cpu_millicores(1_000_000),
+        );
+        let cg_max = CgroupResources::from_container_spec(
+            &ResourceRequirements {
+                requests: req_max,
+                limits: HashMap::new(),
+            },
+            &QosClass::Burstable,
+        );
+        assert_eq!(cg_max.cpu_shares, Some(262_144));
+    }
+
+    #[tokio::test]
+    async fn test_apply_resources_writes_files_from_container_spec() {
+        use kubelet_core::types::ResourceQuantity;
+        use std::collections::HashMap;
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let mgr = CgroupManager::new(dir.path(), false);
+        let uid = PodUID::new("uid-cg-apply");
+
+        let mut requests = HashMap::new();
+        requests.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(50));
+        requests.insert(
+            "memory".to_string(),
+            ResourceQuantity::memory_bytes(52_428_800),
+        );
+        let reqs = ResourceRequirements {
+            requests: requests.clone(),
+            limits: requests,
+        };
+
+        let cg_res = CgroupResources::from_container_spec(&reqs, &QosClass::Guaranteed);
+        mgr.apply_resources(&QosClass::Guaranteed, &uid, "ctr-50m", &cg_res)
+            .await
+            .unwrap();
+
+        let scope = mgr
+            .paths
+            .container_scope(&QosClass::Guaranteed, &uid, "ctr-50m");
+        assert_eq!(
+            mgr.read_cgroup_file(&scope, "cpu.max").await.unwrap(),
+            "5000 100000"
+        );
+        assert_eq!(
+            mgr.read_cgroup_file(&scope, "memory.max").await.unwrap(),
+            "52428800"
+        );
+        assert_eq!(
+            mgr.read_cgroup_file(&scope, "cpu.weight").await.unwrap(),
+            shares_to_weight(51).to_string()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_resources_best_effort_noop() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let mgr = CgroupManager::new(dir.path(), false);
+        let uid = PodUID::new("uid-cg-be");
+
+        let cg_res = CgroupResources::from_container_spec(
+            &ResourceRequirements::default(),
+            &QosClass::BestEffort,
+        );
+        mgr.apply_resources(&QosClass::BestEffort, &uid, "ctr-be", &cg_res)
+            .await
+            .unwrap();
+
+        let scope = mgr
+            .paths
+            .container_scope(&QosClass::BestEffort, &uid, "ctr-be");
+        assert!(!scope.exists());
     }
 }
