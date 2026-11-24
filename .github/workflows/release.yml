@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Create GitHub release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const tag = '${{ needs.prepare.outputs.version }}';
@@ -211,7 +211,7 @@ jobs:
           echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
 
       - name: Upload release assets
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           TAG: ${{ needs.prepare.outputs.version }}
           ARTIFACT: ${{ steps.package.outputs.artifact }}
