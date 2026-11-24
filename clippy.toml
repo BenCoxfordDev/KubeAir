@@ -17,3 +17,8 @@ max-struct-bools = 3
 
 # Cap the number of bool parameters on a function; bool args hurt call-site readability.
 max-fn-params-bools = 2
+
+# Allow unwrap/expect/panic in unit and integration tests while denying them in production code.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

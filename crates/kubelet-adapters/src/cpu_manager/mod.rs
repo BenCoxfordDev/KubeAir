@@ -84,12 +84,12 @@ impl CpuSet {
 
     /// Format as a Linux cpuset string, collapsing ranges.
     pub fn to_cpuset_string(&self) -> String {
-        if self.0.is_empty() {
-            return String::new();
-        }
         let mut parts: Vec<String> = vec![];
         let mut iter = self.0.iter().peekable();
-        let mut range_start = *iter.next().unwrap();
+        let Some(&first) = iter.next() else {
+            return String::new();
+        };
+        let mut range_start = first;
         let mut range_end = range_start;
 
         for &cpu in iter {
@@ -335,7 +335,9 @@ impl CpuManager {
                     .fold(CpuSet::default(), |acc, a| acc.union(&a.cpus))
             }).to_cpuset_string()
         });
-        std::fs::write(path, serde_json::to_string_pretty(&state).unwrap())
+        let serialized = serde_json::to_string_pretty(&state)
+            .map_err(|e| KubeletError::Config(format!("serialize cpumanager checkpoint: {}", e)))?;
+        std::fs::write(path, serialized)
             .map_err(|e| KubeletError::Config(format!("save cpumanager checkpoint: {}", e)))
     }
 

@@ -25,6 +25,8 @@ limitations under the License.
 //! For detailed heap profiling, build with:
 //!   RUSTFLAGS="-C force-frame-pointers=yes" cargo bench --bench memory_profile
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use kubelet_core::pod::manager::PodManager;
 use kubelet_core::pod::status::PodStatusManager;

@@ -22,6 +22,8 @@ limitations under the License.
 //! Run with:
 //!   cargo bench --bench server_throughput
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use kubelet_adapters::mock_runtime::MockRuntime;
 use kubelet_app::server::{ServerState, build_router};

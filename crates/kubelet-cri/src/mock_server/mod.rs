@@ -20,7 +20,11 @@ limitations under the License.
 //! allowing integration tests to exercise the real gRPC transport path without
 //! a live containerd daemon.
 
-use crate::types::*;
+use crate::types::{
+    CriContainerConfig, CriContainerState, CriContainerStatus, CriExecSyncResponse, CriImage,
+    CriImageSpec, CriPodSandboxNetworkStatus, CriPodSandboxStatus, CriSandboxConfig,
+    CriSandboxState,
+};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -268,6 +272,7 @@ impl Default for MockCriServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{CriContainerMetadata, CriPodSandboxMetadata};
 
     #[tokio::test]
     async fn test_run_pod_sandbox() {
