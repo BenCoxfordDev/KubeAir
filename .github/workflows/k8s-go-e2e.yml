@@ -152,5 +152,6 @@ jobs:
             /tmp/kube-apiserver.log
             /tmp/etcd.log
             /tmp/kubelet.log
+            /tmp/kube-proxy.log
             /tmp/kubelet-memory.csv
           if-no-files-found: ignore
