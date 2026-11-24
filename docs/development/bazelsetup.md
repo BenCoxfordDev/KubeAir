@@ -53,7 +53,7 @@ bazel query //...
 
 ### Build a Single Crate
 
-    bazel build //crates/kubelet-core:lib
+    bazel build //crates/kubelet-core/src:lib
 
 ### Run Tests
 
@@ -67,7 +67,7 @@ bazel query //...
 
 Once BUILD files are generated, the root binary can be run:
 
-    bazel run //:kubelet
+    bazel run //src:main
 
 ## Dependency Management
 

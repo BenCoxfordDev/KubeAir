@@ -48,7 +48,7 @@ jobs:
     outputs:
       k8s_tag: ${{ steps.read.outputs.k8s_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Resolve Kubernetes image tag
         id: read
         env:
@@ -76,10 +76,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bazel
-        uses: bazel-contrib/setup-bazel@0.19.0
+        uses: bazel-contrib/setup-bazel@0.19.2
         with:
           bazelisk-cache: true
           disk-cache: kubeair-build-image-${{ matrix.arch }}
@@ -111,7 +111,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install crane
-        uses: imjasonh/setup-crane@v0.4
+        uses: imjasonh/setup-crane@v0.7
 
       - name: Push multi-arch manifest index
         run: |

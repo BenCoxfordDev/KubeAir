@@ -6,11 +6,17 @@ on:
       - main
     paths:
       - 'src/**'
-      - 'crates/**/*.rs'
-      - 'tests/e2e/**'
+      - 'crates/**'
+      - 'tests/**'
+      - 'benches/**'
       - 'hack/e2e/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'BUILD.bazel'
+      - 'MODULE.bazel'
+      - '.bazelrc'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/test.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,7 +32,7 @@ jobs:
     outputs:
       k8s_tag: ${{ steps.read.outputs.k8s_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Read Kubernetes image tag from .version
         id: read
         run: |
@@ -40,7 +46,7 @@ jobs:
     outputs:
       relevant: ${{ steps.filter.outputs.relevant }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Check relevant paths
@@ -48,7 +54,7 @@ jobs:
         shell: bash
         run: |
           CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
-          if echo "$CHANGED" | grep -qE '^(src/|crates/.*\.rs$|tests/e2e/|hack/e2e/|Cargo\.toml$|Cargo\.lock$|\.github/workflows/test\.yml$)'; then
+          if echo "$CHANGED" | grep -qE '^(src/|crates/|tests/|benches/|hack/e2e/|Cargo\.toml$|Cargo\.lock$|BUILD\.bazel$|MODULE\.bazel$|\.bazelrc$|rust-toolchain\.toml$|\.github/workflows/test\.yml$)'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"
@@ -62,10 +68,10 @@ jobs:
       image: ghcr.io/bencoxforddev/kubeair/build:${{ needs.version.outputs.k8s_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bazel
-        uses: bazel-contrib/setup-bazel@0.19.0
+        uses: bazel-contrib/setup-bazel@0.19.2
         with:
           bazelisk-cache: true
           disk-cache: kubeair
@@ -86,10 +92,10 @@ jobs:
       image: ghcr.io/bencoxforddev/kubeair/build:${{ needs.version.outputs.k8s_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bazel
-        uses: bazel-contrib/setup-bazel@0.19.0
+        uses: bazel-contrib/setup-bazel@0.19.2
         with:
           bazelisk-cache: true
           disk-cache: kubeair
@@ -117,7 +123,7 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: |

@@ -247,11 +247,15 @@ fn spec_to_linux_resources(spec: &ContainerSpec) -> LinuxContainerResources {
 
     // Extract CPU quota from limits (in millicores).
     // cpu_quota = milliCPU * cpu_period / 1000 (period = 100ms = 100_000 µs).
+    // Linux cgroup v2 rejects positive quotas below 1,000 µs (1 ms), so clamp
+    // positive limits (e.g. 1m) to at least 1,000 µs while preserving 0 as unlimited.
     let cpu_quota = spec
         .resources
         .limits
         .get("cpu")
-        .map(|q| q.value * 100) // milliCPU → µs per 100ms period
+        .map(|q| q.value)
+        .filter(|&v| v > 0)
+        .map(|milli_cpu| milli_cpu.saturating_mul(100).max(1_000))
         .unwrap_or(0);
 
     // Extract memory limit (already in bytes)
@@ -1404,6 +1408,49 @@ mod tests {
             proto_image.image, image_ref,
             "CreateContainerRequest.image.image must NOT be the tag/reference"
         );
+    }
+
+    #[test]
+    fn test_spec_to_linux_resources_clamps_small_cpu_quota_and_preserves_unlimited() {
+        use kubelet_core::pod::ResourceRequirements;
+        use kubelet_core::types::ResourceQuantity;
+
+        let make_spec = |cpu_limit_millis: Option<i64>| {
+            let mut limits = HashMap::new();
+            if let Some(m) = cpu_limit_millis {
+                limits.insert("cpu".to_string(), ResourceQuantity::cpu_millicores(m));
+            }
+            ContainerSpec {
+                name: "c1".to_string(),
+                image: "busybox:latest".to_string(),
+                resources: ResourceRequirements {
+                    requests: HashMap::new(),
+                    limits,
+                },
+                ..Default::default()
+            }
+        };
+
+        // Unset and 0 preserve unlimited (quota=0, period=0).
+        let unset = spec_to_linux_resources(&make_spec(None));
+        assert_eq!(unset.cpu_quota, 0);
+        assert_eq!(unset.cpu_period, 0);
+
+        let zero = spec_to_linux_resources(&make_spec(Some(0)));
+        assert_eq!(zero.cpu_quota, 0);
+        assert_eq!(zero.cpu_period, 0);
+
+        // Positive limits below 10m clamp to Linux's 1,000 us minimum.
+        for millis in [1, 5, 9, 10] {
+            let res = spec_to_linux_resources(&make_spec(Some(millis)));
+            assert_eq!(res.cpu_quota, 1_000);
+            assert_eq!(res.cpu_period, 100_000);
+        }
+
+        // Larger limits scale normally.
+        let fifty = spec_to_linux_resources(&make_spec(Some(50)));
+        assert_eq!(fifty.cpu_quota, 5_000);
+        assert_eq!(fifty.cpu_period, 100_000);
     }
 
     // Live tests skipped -- require a running containerd socket.

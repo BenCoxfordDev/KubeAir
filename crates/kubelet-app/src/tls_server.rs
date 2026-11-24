@@ -152,7 +152,7 @@ async fn serve_with_rustls(addr: SocketAddr, router: Router, cfg: TlsConfig) -> 
                         .and_then(|certs| certs.first())
                         .and_then(|cert| {
                             // Parse the DER certificate with x509-parser to extract the CN.
-                            use x509_parser::prelude::*;
+                            use x509_parser::prelude::{FromDer, X509Certificate};
                             X509Certificate::from_der(cert.as_ref())
                                 .ok()
                                 .and_then(|(_, parsed)| {

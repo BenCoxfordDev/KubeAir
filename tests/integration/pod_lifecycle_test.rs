@@ -976,13 +976,23 @@ async fn integ_http_lifecycle_hook_connects_to_plain_server() {
     // Start a minimal plain HTTP server
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    tokio::spawn(async move {
-        if let Ok((mut stream, _)) = listener.accept().await {
-            use tokio::io::AsyncWriteExt;
-            let _ = stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-                .await;
+    let server = tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buf = [0; 1024];
+        while !request.ends_with(b"\r\n\r\n") {
+            let n = stream.read(&mut buf).await.unwrap();
+            assert!(n > 0, "client closed before sending HTTP headers");
+            request.extend_from_slice(&buf[..n]);
+            assert!(request.len() <= 8192, "HTTP headers too large");
         }
+        assert!(request.starts_with(b"GET / HTTP/1.1\r\n"));
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
     });
 
     let handler = LifecycleHandler::HttpGet {
@@ -1002,6 +1012,7 @@ async fn integ_http_lifecycle_hook_connects_to_plain_server() {
         "Plain HTTP hook should succeed: {:?}",
         result
     );
+    server.await.unwrap();
 }
 
 /// Regression test: a sidecar init container (restartPolicy=Always) with a

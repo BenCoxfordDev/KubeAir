@@ -56,6 +56,7 @@ The codebase follows the hexagonal architecture pattern used in the Go kubelet s
 | -------------------- | -------------------------------------------------------------- |
 | `kubelet-core`     | Pure domain: types, lifecycle FSM, pod manager, QoS            |
 | `kubelet-ports`    | Port traits: CRI, CNI, storage, node reporter, pod source      |
+| `kubelet-cri`      | CRI gRPC client adapter (containerd)                           |
 | `kubelet-adapters` | Concrete adapters: mock CRI, file pod source, eviction, volume |
 | `kubelet-app`      | Application: sync loop, HTTP server, CLI, metrics              |
 | `kubelet` (root)   | Binary entry point                                             |

@@ -33,7 +33,7 @@ pub mod sync_loop;
 pub mod tls_server;
 
 use crate::runtime_manager::RuntimeManager;
-use kubelet_adapters::cgroup::CgroupManager;
+use kubelet_adapters::cgroup::{CgroupDriver, CgroupManager};
 use kubelet_adapters::checkpoint::CheckpointManager;
 use kubelet_adapters::cni::CniNetworkPlugin;
 use kubelet_adapters::device_manager::DeviceManager;
@@ -527,8 +527,9 @@ impl Kubelet {
         let checkpoint_mgr = Arc::new(CheckpointManager::new(
             self.config.root_dir.join("checkpoints"),
         )?);
-        let cgroup_mgr = Arc::new(CgroupManager::new(
+        let cgroup_mgr = Arc::new(CgroupManager::with_driver(
             "/sys/fs/cgroup",
+            CgroupDriver::parse(&self.config.cgroup_driver),
             !cfg!(target_os = "linux"),
         ));
         let runtime_overheads = {

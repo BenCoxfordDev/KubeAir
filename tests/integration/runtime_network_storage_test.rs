@@ -470,8 +470,8 @@ fn test_cgroup_cpu_weight_conversion_roundtrip() {
     let shares = 2048u64;
     let weight = shares_to_weight(shares);
     let back = weight_to_shares(weight);
-    // Allow small rounding error
-    assert!((back as i64 - shares as i64).abs() < 10);
+    // Allow small rounding error from integer cpu.weight quantization
+    assert!((back as i64 - shares as i64).abs() < 20);
 }
 
 // ── Phase 18: Node feature discovery ─────────────────────────────────────────

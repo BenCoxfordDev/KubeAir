@@ -24,17 +24,17 @@ uuid = { workspace = true }
 tempfile = { workspace = true }
 tokio-stream = { workspace = true, features = ["net"] }
 base64 = { workspace = true }
-hostname = "0.3"
-num_cpus = "1"
+hostname = { workspace = true }
+num_cpus = { workspace = true }
 libc = { workspace = true }
 rcgen = { workspace = true }
 kube = { workspace = true }
 tonic = { workspace = true }
-tonic-health = "0.12"
+tonic-health = { workspace = true }
 tower = { workspace = true }
 k8s-openapi = { workspace = true }
 futures = { workspace = true }
-hyper-util = "0.1"
+hyper-util = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }
@@ -43,4 +43,7 @@ tokio = { workspace = true }
 tempfile = { workspace = true }
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = { workspace = true }
+
+[lints]
+workspace = true

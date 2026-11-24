@@ -30,7 +30,7 @@ pub static RUNNING_POD_COUNT: Lazy<IntGauge> = Lazy::new(|| {
         "kubelet_running_pods",
         "Number of pods that have a running pod sandbox"
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Number of running containers.
@@ -39,7 +39,7 @@ pub static RUNNING_CONTAINER_COUNT: Lazy<IntGauge> = Lazy::new(|| {
         "kubelet_running_containers",
         "Number of containers currently running"
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Pod sync operation latency in seconds.
@@ -50,7 +50,7 @@ pub static POD_SYNC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
         &["operation"],
         vec![0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Total pod start operations by result.
@@ -60,7 +60,7 @@ pub static POD_START_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
         "Total number of pod start attempts",
         &["result"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Total container start operations by result.
@@ -70,7 +70,7 @@ pub static CONTAINER_START_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
         "Total number of container start attempts",
         &["result"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Total evictions by resource.
@@ -80,7 +80,7 @@ pub static EVICTION_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
         "Total number of pod evictions by resource",
         &["resource"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Node status update latency.
@@ -91,7 +91,7 @@ pub static NODE_STATUS_SYNC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
         &["type"],
         vec![0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Image pull latency.
@@ -102,7 +102,7 @@ pub static IMAGE_PULL_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
         &["image"],
         vec![1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Active streaming sessions by endpoint.
@@ -112,7 +112,7 @@ pub static STREAMING_ACTIVE_SESSIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
         "Active streaming sessions by endpoint",
         &["endpoint"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Streaming session duration (seconds) by endpoint and outcome.
@@ -125,7 +125,7 @@ pub static STREAMING_SESSION_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
             0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 300.0
         ]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// End-to-end streaming request latency. Use histogram_quantile() for SLO percentiles.
@@ -136,7 +136,7 @@ pub static STREAMING_REQUEST_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
         &["endpoint"],
         vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0, 10.0]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Bytes transferred by endpoint and direction.
@@ -146,7 +146,7 @@ pub static STREAMING_BYTES_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
         "Total bytes transferred by streaming endpoints",
         &["endpoint", "direction"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 /// Streaming errors partitioned by endpoint and class.
@@ -156,7 +156,7 @@ pub static STREAMING_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
         "Total streaming endpoint errors by class",
         &["endpoint", "class"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 pub static CONTAINER_CPU_USAGE_SECONDS_TOTAL: Lazy<GaugeVec> = Lazy::new(|| {
@@ -165,7 +165,7 @@ pub static CONTAINER_CPU_USAGE_SECONDS_TOTAL: Lazy<GaugeVec> = Lazy::new(|| {
         "Cumulative CPU usage seconds by container",
         &["namespace", "pod", "container", "pod_uid"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 pub static CONTAINER_MEMORY_WORKING_SET_BYTES: Lazy<GaugeVec> = Lazy::new(|| {
@@ -174,7 +174,7 @@ pub static CONTAINER_MEMORY_WORKING_SET_BYTES: Lazy<GaugeVec> = Lazy::new(|| {
         "Container memory working set bytes",
         &["namespace", "pod", "container", "pod_uid"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 pub static CONTAINER_NETWORK_RECEIVE_BYTES_TOTAL: Lazy<GaugeVec> = Lazy::new(|| {
@@ -183,7 +183,7 @@ pub static CONTAINER_NETWORK_RECEIVE_BYTES_TOTAL: Lazy<GaugeVec> = Lazy::new(|| 
         "Container network receive bytes",
         &["namespace", "pod", "container", "pod_uid"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 pub static CONTAINER_NETWORK_TRANSMIT_BYTES_TOTAL: Lazy<GaugeVec> = Lazy::new(|| {
@@ -192,7 +192,7 @@ pub static CONTAINER_NETWORK_TRANSMIT_BYTES_TOTAL: Lazy<GaugeVec> = Lazy::new(||
         "Container network transmit bytes",
         &["namespace", "pod", "container", "pod_uid"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 pub static CONTAINER_FS_USAGE_BYTES: Lazy<GaugeVec> = Lazy::new(|| {
@@ -201,7 +201,7 @@ pub static CONTAINER_FS_USAGE_BYTES: Lazy<GaugeVec> = Lazy::new(|| {
         "Container filesystem usage bytes",
         &["namespace", "pod", "container", "pod_uid"]
     )
-    .unwrap()
+    .expect("static Prometheus metric registration must succeed")
 });
 
 pub fn streaming_session_started(endpoint: &str) {

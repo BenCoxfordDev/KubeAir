@@ -42,7 +42,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Read Kubernetes image tag from .version
@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Create GitHub release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const tag = '${{ needs.prepare.outputs.version }}';
@@ -174,12 +174,12 @@ jobs:
       image: ghcr.io/bencoxforddev/kubeair/build:${{ needs.prepare.outputs.k8s_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Set up Bazel
-        uses: bazel-contrib/setup-bazel@0.19.0
+        uses: bazel-contrib/setup-bazel@0.19.2
         with:
           bazelisk-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && 'false' || 'true' }}
           disk-cache: ${{ needs.prepare.outputs.rebuild_assets == 'true' && '' || 'kubeair' }}
@@ -211,7 +211,7 @@ jobs:
           echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
 
       - name: Upload release assets
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           TAG: ${{ needs.prepare.outputs.version }}
           ARTIFACT: ${{ steps.package.outputs.artifact }}

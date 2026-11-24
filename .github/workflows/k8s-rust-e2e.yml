@@ -68,7 +68,7 @@ jobs:
     outputs:
       k8s_tag: ${{ steps.read.outputs.k8s_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Read Kubernetes image tag from .version
         id: read
         run: |
@@ -82,7 +82,7 @@ jobs:
     outputs:
       relevant: ${{ steps.filter.outputs.relevant }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Check relevant paths
@@ -109,12 +109,12 @@ jobs:
       # ── Checkout ──────────────────────────────────────────────────────────────
 
       - name: Checkout kube-air
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # ── Bazel ─────────────────────────────────────────────────────────────────
 
       - name: Set up Bazel
-        uses: bazel-contrib/setup-bazel@0.19.0
+        uses: bazel-contrib/setup-bazel@0.19.2
         with:
           bazelisk-cache: true
           disk-cache: kubeair
@@ -144,7 +144,7 @@ jobs:
 
       - name: Upload setup log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: setup-node-log
           path: /tmp/setup-node.log
@@ -204,7 +204,7 @@ jobs:
 
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           path: |

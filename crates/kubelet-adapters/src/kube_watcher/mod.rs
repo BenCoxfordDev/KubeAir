@@ -993,8 +993,7 @@ fn parse_volumes(spec: &serde_json::Value) -> Vec<VolumeSpec> {
                             path: hp.get("path")?.as_str()?.to_string(),
                             path_type: hp.get("type").and_then(|t| t.as_str()).map(str::to_string),
                         }
-                    } else if v.get("emptyDir").is_some() {
-                        let ed = v.get("emptyDir").unwrap();
+                    } else if let Some(ed) = v.get("emptyDir") {
                         VolumeSource::EmptyDir {
                             medium: ed
                                 .get("medium")

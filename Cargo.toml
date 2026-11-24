@@ -98,12 +98,14 @@ rcgen = "0.13"
 libc = "0.2"
 rustls = { version = "0.23", features = ["ring"], default-features = false }
 tonic = { version = "0.12", features = ["transport", "tls"] }
+tonic-build = "0.12"
 tonic-health = "0.12"
 prost = "0.13"
 prost-types = "0.13"
 tempfile = "3"
 nix = { version = "0.28", features = ["signal", "process", "fs", "mount"] }
 hyper-util = "0.1"
+hostname = "0.3"
 num_cpus = "1"
 tokio-rustls = "0.26"
 rustls-pemfile = "2"
@@ -218,7 +220,10 @@ tempfile = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
 futures = { workspace = true }
-hyper-util = "0.1"
+hyper-util = { workspace = true }
+
+[lints]
+workspace = true
 
 [[bench]]
 name = "pod_operations"

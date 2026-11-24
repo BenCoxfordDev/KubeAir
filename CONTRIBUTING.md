@@ -10,12 +10,14 @@ This project follows the [CNCF Project Code of Conduct](https://github.com/cncf/
 
 ### Prerequisites
 
+- [Bazelisk](https://github.com/bazelbuild/bazelisk) (installs the Bazel version pinned in `.bazelversion`)
+- [just](https://github.com/casey/just) command runner
 - Rust toolchain — pinned in `rust-toolchain.toml`, `rustup` installs it automatically
 - `protoc` (Protocol Buffers compiler) for CRI gRPC stubs
 
 ```bash
 # macOS
-brew install protobuf
+brew install bazelisk just protobuf
 
 # Ubuntu/Debian
 sudo apt-get install protobuf-compiler
@@ -80,7 +82,8 @@ KubeAir uses a hexagonal (ports and adapters) architecture. The layers are:
 
 - `kubelet-core` — pure domain logic, no I/O. This is where pod lifecycle state machines, QoS classification, and configuration live.
 - `kubelet-ports` — trait definitions (interfaces) for CRI, CNI, storage, node reporter, and pod source.
-- `kubelet-adapters` — concrete implementations of those traits (containerd CRI, file-based pod source, volume management, eviction).
+- `kubelet-cri` — CRI gRPC client adapter for containerd.
+- `kubelet-adapters` — concrete implementations of those traits (mock CRI, file-based pod source, volume management, eviction).
 - `kubelet-app` — application layer: sync loop, HTTP server, CLI argument parsing, metrics.
 
 Keep domain logic in `kubelet-core`. Adapters in `kubelet-adapters` should be thin — translate between the external system and the port trait, nothing more.

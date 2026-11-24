@@ -286,13 +286,10 @@ impl MirrorPodManager {
         let pods: kube::Api<k8s_openapi::api::core::v1::Pod> =
             kube::Api::namespaced(client.clone(), namespace);
 
-        match pods
-            .create(
-                &kube::api::PostParams::default(),
-                &serde_json::from_value(pod_obj).unwrap(),
-            )
-            .await
-        {
+        let pod: k8s_openapi::api::core::v1::Pod = serde_json::from_value(pod_obj)
+            .map_err(|e| KubeletError::Runtime(format!("serialize mirror pod: {}", e)))?;
+
+        match pods.create(&kube::api::PostParams::default(), &pod).await {
             Ok(_) => {
                 info!(pod = %name, ns = %namespace, "Mirror pod created");
                 Ok(())
