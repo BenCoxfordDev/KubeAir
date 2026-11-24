@@ -906,8 +906,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mgr = CgroupManager::with_driver(dir.path(), CgroupDriver::Cgroupfs, false);
         let uid = PodUID::new("uid-cg-self-pid");
-        let kubelet_cgroup = cgroup_path_for_pid(dir.path(), std::process::id()).unwrap();
-        std::fs::create_dir_all(&kubelet_cgroup).unwrap();
+        if let Some(kubelet_cgroup) = cgroup_path_for_pid(dir.path(), std::process::id()) {
+            std::fs::create_dir_all(&kubelet_cgroup).unwrap();
+        }
 
         let expected = mgr.paths.container_scope_for_driver(
             CgroupDriver::Cgroupfs,
