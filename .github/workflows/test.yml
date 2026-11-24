@@ -32,7 +32,7 @@ jobs:
     outputs:
       k8s_tag: ${{ steps.read.outputs.k8s_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Read Kubernetes image tag from .version
         id: read
         run: |
@@ -46,7 +46,7 @@ jobs:
     outputs:
       relevant: ${{ steps.filter.outputs.relevant }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Check relevant paths
@@ -68,7 +68,7 @@ jobs:
       image: ghcr.io/bencoxforddev/kubeair/build:${{ needs.version.outputs.k8s_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.19.2
@@ -92,7 +92,7 @@ jobs:
       image: ghcr.io/bencoxforddev/kubeair/build:${{ needs.version.outputs.k8s_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.19.2
@@ -123,7 +123,7 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: |
