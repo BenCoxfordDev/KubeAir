@@ -616,7 +616,7 @@
     "@@rules_rust+//crate_universe:extension.bzl%crate": {
       "general": {
         "bzlTransitiveDigest": "OwmOun1enuNu0sHv3eLKNoAz9BICtBo8gEmGIomg2LE=",
-        "usagesDigest": "Ug/TSm5XiDUFQdTQW7SEsFGeHvT53gdioBKdwm1IkNo=",
+        "usagesDigest": "+0yh9szfDl0KWpq00/z+tNClKvF3xpCvzm37dO6bRfw=",
         "recordedInputs": [
           "ENV:CARGO_BAZEL_DEBUG \\0",
           "ENV:CARGO_BAZEL_GENERATOR_SHA256 \\0",
@@ -640,12 +640,12 @@
           "REPO_MAPPING:rules_rust+,rules_cc rules_cc+",
           "REPO_MAPPING:rules_rust+,rules_rust rules_rust+",
           "FILE:@@//Cargo.lock 07c61b57852438f82a68bb982011d0870794ef8516eede33c872254e9bb37b68",
-          "FILE:@@//Cargo.toml 9b0c2e0b3c77d5a31e5071f0d55f4a4c2577e79f56ef9a41ef72ba896e9a6b7c",
-          "FILE:@@//crates/kubelet-core/Cargo.toml acbcbf90ee46dc90d2d7920629bdd8db4a0909228214faf032810b1e1037b225",
-          "FILE:@@//crates/kubelet-ports/Cargo.toml 169140572950df1f84e1aac4f1f2b21d0f444267756a65347bea35c0e39602ea",
-          "FILE:@@//crates/kubelet-adapters/Cargo.toml 507f5c97e70b000aacc5b815737321b94a7261fceaf483406adefbe9f5812182",
-          "FILE:@@//crates/kubelet-app/Cargo.toml 713c747a90715eee4c62bb482222e897d82ba24d810f43f7b87d9e7f3a4f316f",
-          "FILE:@@//crates/kubelet-cri/Cargo.toml 1971e4cecc147b87f26e3771d97490789c2e7d4d4d234d44c39731bfff21e4cf"
+          "FILE:@@//Cargo.toml da453139e72c87ce1cc16a02872ac8794a156e6ce719adef8e18909cf98b52a7",
+          "FILE:@@//crates/kubelet-core/Cargo.toml d95b4081ab7e58e65f3a311e87513463498e3f7057a71f51b89b8de0bb6af92d",
+          "FILE:@@//crates/kubelet-ports/Cargo.toml 821547508b42c7966c3bdc35c3ce7b82c63fc9195862b9b911df37aed15365fd",
+          "FILE:@@//crates/kubelet-adapters/Cargo.toml b2ffb362b25491a5ec96160b8886dbaa81bc5aec11f364b5c75316c04620341f",
+          "FILE:@@//crates/kubelet-app/Cargo.toml 9c3542af72463a426eb1dca6a563b0caac47d0bb74d718b5bedd294c0a16d262",
+          "FILE:@@//crates/kubelet-cri/Cargo.toml e8f06dc82a7a78b566d0d9f6f226b795319772281ce01d400dff22d4b673f929"
         ],
         "generatedRepoSpecs": {
           "crates": {

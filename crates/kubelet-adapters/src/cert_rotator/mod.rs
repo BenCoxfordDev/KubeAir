@@ -216,11 +216,11 @@ impl CertRotator {
         params
             .distinguished_name
             .push(DnType::OrganizationName, "system:nodes");
+        let dns_name = rcgen::Ia5String::try_from(self.node_name.as_str())
+            .or_else(|_| rcgen::Ia5String::try_from("localhost"))
+            .map_err(|e| KubeletError::Tls(format!("invalid SAN DNS name: {}", e)))?;
         params.subject_alt_names = vec![
-            SanType::DnsName(
-                rcgen::Ia5String::try_from(self.node_name.as_str())
-                    .unwrap_or_else(|_| rcgen::Ia5String::try_from("localhost").unwrap()),
-            ),
+            SanType::DnsName(dns_name),
             SanType::IpAddress(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
         ];
 

@@ -568,7 +568,11 @@ impl PodWorker {
             }
         }
 
-        let sandbox_id = state.sandbox_id.clone().unwrap();
+        let Some(sandbox_id) = state.sandbox_id.clone() else {
+            return PodSyncResult::NeedsRetry(
+                "sandbox id missing after sandbox creation".to_string(),
+            );
+        };
 
         // Step 3: Process init containers in order.
         // Sidecar init containers (restartPolicy=Always) start when reached and keep running.

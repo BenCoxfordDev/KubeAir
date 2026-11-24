@@ -8,7 +8,7 @@
 [![K8s Rust E2E](https://github.com/BenCoxfordDev/kubeair/actions/workflows/k8s-rust-e2e.yml/badge.svg)](https://github.com/BenCoxfordDev/kubeair/actions/workflows/k8s-rust-e2e.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-A like-for-like functional Rust reimplementation of the Kubernetes [kubelet](https://github.com/kubernetes/kubernetes/blob/master/cmd/kubelet/kubelet.go), tested against a live kubeadm cluster with ~888 automated tests across unit, integration, conformance, and e2e layers. In the future we may visit other componenets like the kube-apiserver.
+A like-for-like functional Rust reimplementation of the Kubernetes [kubelet](https://github.com/kubernetes/kubernetes/blob/master/cmd/kubelet/kubelet.go), tested against a live kubeadm cluster with ~889 automated tests across unit, integration, conformance, and e2e layers. In the future we may visit other components like the kube-apiserver.
 
 > **Note:** This is an independent project and is not affiliated with or endorsed by Kubernetes or CNCF.
 
@@ -34,11 +34,11 @@ Future test, projected at scale:
 
 ## Testing
 
-KubeAir has ~888 automated tests across four layers:
+KubeAir has ~889 automated tests across four layers:
 
 | Layer       | Tests | Description                                    |
 | ----------- | ----- | ---------------------------------------------- |
-| Unit        | 662   | Per-crate logic tests inside`crates/`        |
+| Unit        | 662   | Per-crate logic tests inside `crates/`         |
 | Integration | 70    | Cross-crate behaviour and lifecycle flows      |
 | Conformance | 119   | Kubernetes spec compliance (in-process)        |
 | E2E         | 38    | Live cluster tests against a real kubeadm node |
@@ -57,13 +57,15 @@ See [docs/development/releases.md](docs/development/releases.md) for the full co
 
 ### Prerequisites
 
+- [Bazelisk](https://github.com/bazelbuild/bazelisk) (installs the Bazel version pinned in `.bazelversion`)
+- [just](https://github.com/casey/just) command runner
 - Rust toolchain (pinned in `rust-toolchain.toml` — `rustup` installs it automatically)
 - `protoc` (Protocol Buffers compiler) for building the CRI gRPC stubs
 - A Linux node joined to a Kubernetes cluster (the kubelet runs as a node agent)
 
 ```bash
 # macOS
-brew install protobuf
+brew install bazelisk just protobuf
 
 # Ubuntu/Debian
 sudo apt-get install protobuf-compiler

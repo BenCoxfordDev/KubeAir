@@ -18,7 +18,10 @@ tokio = { workspace = true }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
 serde_yaml = { workspace = true }
-hostname = "0.3"
+hostname = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+
+[lints]
+workspace = true

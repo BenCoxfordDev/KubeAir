@@ -23,6 +23,8 @@ limitations under the License.
 //!   cargo bench --bench pod_operations -- --save-baseline main
 //!   cargo bench --bench pod_operations -- --baseline main   # compare
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use kubelet_core::config::KubeletConfig;
 use kubelet_core::pod::lifecycle::{ContainerState, ContainerStatus, compute_pod_phase};

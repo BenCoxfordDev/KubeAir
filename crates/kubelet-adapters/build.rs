@@ -19,18 +19,18 @@ const MIN_PROTOC: (u32, u32, u32) = (3, 7, 2);
 
 /// Verify that the `protoc` binary on PATH is at least [`MIN_PROTOC`].
 /// Emits a clear, actionable error at build time if not.
-fn check_protoc_version() {
+fn check_protoc_version() -> Result<(), Box<dyn std::error::Error>> {
     let output = std::process::Command::new("protoc")
         .arg("--version")
         .output()
-        .expect("protoc not found on PATH — install protobuf-compiler >= 3.7.2");
+        .map_err(|e| format!("protoc not found on PATH — install protobuf-compiler >= 3.7.2: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     // protoc prints: "libprotoc X.Y.Z"
     let version_str = stdout
         .trim()
         .strip_prefix("libprotoc ")
-        .unwrap_or_else(|| panic!("Unexpected protoc --version output: '{stdout}'"));
+        .ok_or_else(|| format!("Unexpected protoc --version output: '{stdout}'"))?;
 
     let parts: Vec<u32> = version_str
         .split('.')
@@ -44,38 +44,30 @@ fn check_protoc_version() {
         parts.get(2).copied().unwrap_or(0),
     );
 
-    assert!(
-        actual >= MIN_PROTOC,
-        "protoc {}.{}.{} is too old — kubelet-adapters requires >= {}.{}.{}",
-        actual.0,
-        actual.1,
-        actual.2,
-        MIN_PROTOC.0,
-        MIN_PROTOC.1,
-        MIN_PROTOC.2,
-    );
+    if actual < MIN_PROTOC {
+        return Err(format!(
+            "protoc {}.{}.{} is too old — kubelet-adapters requires >= {}.{}.{}",
+            actual.0, actual.1, actual.2, MIN_PROTOC.0, MIN_PROTOC.1, MIN_PROTOC.2,
+        )
+        .into());
+    }
+
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Expose the Kubernetes version from the workspace-root `.version` file so
     // that node-status reporting can use `env!("KUBERNETES_VERSION")`.
-    let manifest_dir =
-        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is always set by Cargo");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
     let version_path = std::path::Path::new(&manifest_dir).join("../../.version");
     let version = std::fs::read_to_string(&version_path)
-        .unwrap_or_else(|e| {
-            panic!(
-                "Failed to read .version at {}: {}",
-                version_path.display(),
-                e
-            )
-        })
+        .map_err(|e| format!("Failed to read .version at {}: {e}", version_path.display()))?
         .trim()
         .to_string();
     println!("cargo:rustc-env=KUBERNETES_VERSION={version}");
     println!("cargo:rerun-if-changed=../../.version");
 
-    check_protoc_version();
+    check_protoc_version()?;
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
