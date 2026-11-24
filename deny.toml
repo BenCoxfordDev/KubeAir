@@ -13,9 +13,9 @@ unsound = "workspace"
 yanked = "warn"
 # Transitive advisory ignores — remove when upstream dependency is updated
 ignore = [
-  # rustls-pemfile is unmaintained; used transitively via kube-client
-  # Migrate when kube updates to rustls-pki-types >= 1.9.0
-  { id = "RUSTSEC-2025-0134", reason = "transitive via kube-client, cannot update directly" },
+  # rustls-pemfile is unmaintained; used directly in kubelet-app and transitively via kube-client
+  # Migrate kubelet-app to rustls-pki-types and remove ignore once kube drops rustls-pemfile
+  { id = "RUSTSEC-2025-0134", reason = "used in kubelet-app and transitively via kube-client; migrate to rustls-pki-types" },
   # chrono is unmaintained; used directly and transitively via k8s-openapi / kube
   # Migrate to jiff/time once k8s-openapi/kube drop chrono
   { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; no safe upgrade and required transitively by k8s-openapi/kube" },

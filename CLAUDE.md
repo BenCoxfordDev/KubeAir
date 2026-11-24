@@ -16,11 +16,7 @@ It covers build/test commands, project conventions, architecture, and links to k
 
 ## Rust Toolchain
 
-The toolchain is pinned in `rust-toolchain.toml`. `rustup` installs it automatically on first use.
-
-```
-channel = "1.96.0"
-```
+The toolchain is pinned in `rust-toolchain.toml` (`rustup` installs it automatically on first use) and in `MODULE.bazel` for Bazel builds.
 
 ## Build Commands
 
@@ -66,7 +62,7 @@ Full cluster tests in `tests/e2e/`. They are `#[ignore]` and require a running K
 just e2e
 
 # Run a specific e2e test against an existing cluster
-cargo test --test workload_features_test -- --ignored e2e_configmap_env_injection --nocapture
+cargo test --test e2e_workload_features -- --ignored e2e_configmap_env_injection --nocapture
 ```
 
 ## Linting and Formatting
@@ -85,7 +81,7 @@ just fmt
 
 ```bash
 # run benchmark tests
-just benchmark 
+just bench
 ```
 
 HTML reports are written to `target/criterion/`.
@@ -98,6 +94,7 @@ KubeAir uses a **(ports and adapters)** architecture. Dependencies flow inward �
 src/main.rs
     └── kubelet-app      (sync loop, HTTP server, CLI, metrics)
             ├── kubelet-ports    (port traits: CRI, CNI, storage, reporter, source)
+            ├── kubelet-cri      (CRI gRPC client adapter)
             └── kubelet-adapters (concrete adapters: mock CRI, volume, eviction, prober…)
                     └── kubelet-core   (pure domain: types, FSM, pod manager, QoS)
 ```
@@ -110,6 +107,7 @@ See [docs/development/development.md](docs/development/development.md) for the f
 |---|---|
 | `kubelet-core` | Pure domain: types, lifecycle FSM, pod manager, QoS |
 | `kubelet-ports` | Port traits: CRI, CNI, storage, node reporter, pod source |
+| `kubelet-cri` | CRI gRPC client adapter (containerd) |
 | `kubelet-adapters` | Concrete adapters: mock CRI, file pod source, eviction, volume |
 | `kubelet-app` | Application: sync loop, HTTP server, CLI, metrics |
 | `kubelet` (root) | Binary entry point (`src/main.rs`) |
@@ -122,8 +120,8 @@ See [docs/development/development.md](docs/development/development.md) for the f
 - **No panics in production** — if a condition is genuinely impossible, add a comment explaining why before using `expect`.
 - **No unnecessary allocations** — KubeAir's value is low memory/CPU. Prefer `Arc` sharing over cloning large structures.
 - **`unsafe`** — requires a comment explaining the invariant being upheld. Minimise scope.
-- **Clippy clean** — `just verify` runs `cargo clippy -- -D warnings`. Zero warnings required.
-- **Formatted** — all code must pass `cargo fmt` before merging.
+- **Clippy clean** — `just verify` builds all targets with Bazel's clippy and rustfmt aspects and runs `cargo_deny`. Zero warnings required.
+- **Formatted** — all code must pass `just fmt` before merging.
 
 ## Contributing Workflow
 

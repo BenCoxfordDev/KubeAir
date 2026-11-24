@@ -67,7 +67,7 @@ Monitor these resources for changes that affect kubelet behaviour:
 - [Kubernetes Changelog](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/) — scan `kubelet` section for each release
 - [KEP tracker](https://kep.k8s.io/) — filter by SIG-Node for upcoming kubelet features
 - [k8s-openapi releases](https://github.com/Arnavion/k8s-openapi/releases) — signals when new API types are available
-- [kubeair releases](https://github.com/BenCoxfordDev/kubeair/releases) — client library updates
+- [kube-rs releases](https://github.com/kube-rs/kube/releases) — client library updates
 
 Subscribe to `kubernetes-dev` digest and SIG-Node meeting notes to stay ahead of API deprecations.
 
@@ -97,7 +97,7 @@ PR to main (Cargo.toml changed)
            ▼
     ┌──────────────────────────┐
     │   build_and_upload       │  Matrix: amd64 + arm64 (ubuntu-24.04).
-    │   (matrix: amd64, arm64) │  Builds with --locked --release.
+    │   (matrix: amd64, arm64) │  Builds with Bazel (just build <arch>).
     │                          │  Packages: kubelet-vX.Y.Z-linux_<arch>.tar.gz
     │                          │  Uploads binary + .sha256 to the release.
     └──────────────────────────┘
@@ -149,10 +149,10 @@ Use this when `main` is already at `1.36.x` (or later) but `1.35.x` still needs 
    ```bash
    git checkout -b patch/v1.35.1 release/v1.35
    ```
-3. Apply the fixes and bump `[workspace.package] version` in `Cargo.toml` to `1.35.1`.
-4. Open a PR **against `release/1.35`** (not `main`) and merge.
+3. Apply the fixes and bump `[workspace.package] version` in `Cargo.toml` (and `PACKAGE_VERSION` in `src/BUILD.bazel` / `version` in `MODULE.bazel`) to `1.35.1`.
+4. Open a PR **against `release/v1.35`** (not `main`) and merge.
 5. If the fix also applies to `main`, open a separate cherry-pick PR against `main`.
-6. Merging into `release/1.35` triggers the CI release pipeline automatically (same as `main`) — it tags `v1.35.1` and publishes the release artifacts.
+6. Merging into `release/v1.35` triggers the CI release pipeline automatically (same as `main`) — it tags `v1.35.1` and publishes the release artifacts.
 
 ### Pre-release checklist
 
@@ -160,7 +160,7 @@ Use this when `main` is already at `1.36.x` (or later) but `1.35.x` still needs 
 - [ ] `just test` passes (all unit, integration, and conformance suites)
 - [ ] E2E suite passes: 0 failures (`just e2e`)
 - [ ] Dependencies audited: `cargo audit` reports no high/critical advisories
-- [ ] `[workspace.package] version` in `Cargo.toml` is updated
+- [ ] `[workspace.package] version` in `Cargo.toml`, `PACKAGE_VERSION` in `src/BUILD.bazel`, and `version` in `MODULE.bazel` are updated
 - [ ] Compatibility table in this file is updated
 - [ ] PR description summarises changes (used as auto-generated release notes source)
 
@@ -215,7 +215,7 @@ The table below tracks which KubeAir release targets which Kubernetes cluster ve
 
 | KubeAir Version | Kubernetes Version | k8s-openapi feature | Rust Toolchain | Status |
 | --------------- | ------------------ | ------------------- | -------------- | ------ |
-| `1.35.x`      | 1.35               | `v1_32`           | 1.96.0         | Active |
+| `1.35.x`      | 1.35               | `v1_30`           | 1.100.0        | Active |
 
 > **Note:** `k8s-openapi` version lag is normal — the crate lags slightly behind Kubernetes releases. Use the highest available feature flag that is ≤ the target cluster version.
 
