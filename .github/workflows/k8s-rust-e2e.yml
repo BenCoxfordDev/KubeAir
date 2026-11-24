@@ -102,7 +102,7 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/bencoxforddev/kubeair/build:${{ needs.version.outputs.k8s_tag }}
-      options: --privileged
+      options: --privileged --cgroupns=host
     timeout-minutes: 60
 
     steps:

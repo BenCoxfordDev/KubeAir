@@ -157,9 +157,16 @@ else
 fi
 
 # ── cgroupv2 controller delegation ────────────────────────────────────────────
-if [[ -f /sys/fs/cgroup/cgroup.subtree_control ]]; then
-  echo "+cpu +cpuset +memory +io +pids" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
-  log "Delegated cgroupv2 controllers"
+if [[ -f /sys/fs/cgroup/cgroup.subtree_control && -f /sys/fs/cgroup/cgroup.controllers ]]; then
+  for _ctrl in $(cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null); do
+    echo "+${_ctrl}" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
+  done
+  _delegated="$(cat /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true)"
+  if [[ -n "$_delegated" ]]; then
+    log "Delegated cgroupv2 controllers: ${_delegated}"
+  else
+    log "Warning: no cgroupv2 controllers delegated (ensure container runs with --cgroupns=host)"
+  fi
 fi
 
 nohup containerd >/tmp/containerd.log 2>&1 &

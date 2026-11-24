@@ -110,6 +110,7 @@ mkdir -p "${HOME}/.cache/bazel"
 "$CONTAINER_RUNTIME" run \
   --rm \
   --privileged \
+  --cgroupns=host \
   --network="$NETWORK_MODE" \
   --ulimit nofile=65536:65536 \
   -v "$REPO_ROOT:/workspace:z" \
