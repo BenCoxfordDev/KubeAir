@@ -33,6 +33,7 @@ PID_FILE="${1:-/tmp/kubelet.pid}"
 OUTPUT="${2:-/tmp/kubelet-memory.csv}"
 INTERVAL="${3:-2}"
 
+mkdir -p "$(dirname "$OUTPUT")"
 echo "timestamp_s,rss_kb" > "$OUTPUT"
 
 cleanup() { exit 0; }

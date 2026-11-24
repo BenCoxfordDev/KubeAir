@@ -157,9 +157,16 @@ else
 fi
 
 # ── cgroupv2 controller delegation ────────────────────────────────────────────
-if [[ -f /sys/fs/cgroup/cgroup.subtree_control ]]; then
-  echo "+cpu +cpuset +memory +io +pids" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
-  log "Delegated cgroupv2 controllers"
+if [[ -f /sys/fs/cgroup/cgroup.subtree_control && -f /sys/fs/cgroup/cgroup.controllers ]]; then
+  for _ctrl in $(cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null); do
+    echo "+${_ctrl}" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
+  done
+  _delegated="$(cat /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true)"
+  if [[ -n "$_delegated" ]]; then
+    log "Delegated cgroupv2 controllers: ${_delegated}"
+  else
+    log "Warning: no cgroupv2 controllers delegated (ensure container runs with --cgroupns=host)"
+  fi
 fi
 
 nohup containerd >/tmp/containerd.log 2>&1 &
@@ -312,9 +319,10 @@ sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 sysctl -w net.bridge.bridge-nf-call-iptables=1 >/dev/null 2>&1 || true
 sysctl -w net.bridge.bridge-nf-call-ip6tables=1 >/dev/null 2>&1 || true
 
+iptables -P FORWARD ACCEPT 2>/dev/null || true
 iptables -t nat -C POSTROUTING -s 10.88.0.0/16 ! -d 10.88.0.0/16 -j MASQUERADE 2>/dev/null || \
   iptables -t nat -A POSTROUTING -s 10.88.0.0/16 ! -d 10.88.0.0/16 -j MASQUERADE 2>/dev/null || true
-log "iptables MASQUERADE rule ensured for 10.88.0.0/16"
+log "iptables FORWARD/MASQUERADE rules ensured for 10.88.0.0/16"
 
 if ! ip link show cni0 &>/dev/null; then
   if ip link add cni0 type bridge 2>/dev/null; then
@@ -734,15 +742,48 @@ log "kube-air kubelet started (PID $KUBELET_PID)"
 
 step "Starting kube-proxy"
 
-nohup kube-proxy \
-  --kubeconfig=/etc/kubernetes/admin.conf \
-  --proxy-mode=ipvs \
-  --ipvs-scheduler=rr \
-  --cluster-cidr=10.88.0.0/16 \
-  >/tmp/kube-proxy.log 2>&1 &
-PROXY_PID=$!
-_pids+=("$PROXY_PID")
-log "kube-proxy started (PID $PROXY_PID)"
+# Prefer IPVS mode when the host kernel has ip_vs loaded (needed for rootless
+# podman pasta namespaces where br_netfilter may be unavailable), otherwise fall
+# back to iptables mode (e.g. GitHub Actions ubuntu-24.04 Azure kernels where
+# ip_vs is not loaded and /lib/modules is not mounted into the container).
+_start_kube_proxy_iptables() {
+  nohup kube-proxy \
+    --kubeconfig=/etc/kubernetes/admin.conf \
+    --proxy-mode=iptables \
+    --cluster-cidr=10.88.0.0/16 \
+    >/tmp/kube-proxy.log 2>&1 &
+  PROXY_PID=$!
+  _pids+=("$PROXY_PID")
+  sleep 2
+  if kill -0 "$PROXY_PID" 2>/dev/null; then
+    log "kube-proxy started in iptables mode (PID $PROXY_PID)"
+  else
+    log "Warning: kube-proxy (iptables mode) exited unexpectedly:"
+    tail -20 /tmp/kube-proxy.log 2>/dev/null || true
+  fi
+}
+
+if ipvsadm -L -n >/dev/null 2>&1; then
+  nohup kube-proxy \
+    --kubeconfig=/etc/kubernetes/admin.conf \
+    --proxy-mode=ipvs \
+    --ipvs-scheduler=rr \
+    --cluster-cidr=10.88.0.0/16 \
+    >/tmp/kube-proxy.log 2>&1 &
+  PROXY_PID=$!
+  sleep 3
+  if kill -0 "$PROXY_PID" 2>/dev/null; then
+    _pids+=("$PROXY_PID")
+    log "kube-proxy started in ipvs mode (PID $PROXY_PID)"
+  else
+    log "Warning: kube-proxy (ipvs mode) exited — falling back to iptables mode"
+    tail -10 /tmp/kube-proxy.log 2>/dev/null || true
+    _start_kube_proxy_iptables
+  fi
+else
+  log "IPVS kernel support unavailable — using iptables mode"
+  _start_kube_proxy_iptables
+fi
 
 # ── Wait for node Ready ───────────────────────────────────────────────────────
 
@@ -964,8 +1005,10 @@ for i in $(seq 1 60); do
     get pods -n kube-system -l k8s-app=kube-dns \
     --no-headers 2>/dev/null || true)"
 
-  _dns_ready="$(echo "$_dns_status" | awk '{print $2}' | grep -c '1/1' || true)"
-  if [[ "${_dns_ready:-0}" -ge 1 ]]; then
+  _dns_ready="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+    get pods -n kube-system -l k8s-app=kube-dns \
+    -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+  if [[ "$_dns_ready" == "True" ]]; then
     log "CoreDNS pod is Ready"
     break
   fi
